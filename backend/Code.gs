@@ -5,7 +5,7 @@
 
 // Configuration - UPDATE THESE after deploying
 const CONFIG = {
-  FRONTEND_URL: 'https://yourusername.github.io/PlayoffPredictor', // Update after GitHub Pages deploy
+  FRONTEND_URL: 'https://playoff.ttnelson.com', // Update after GitHub Pages deploy
   TOKEN_EXPIRY_HOURS: 24,
   PLAYOFFS_LOCKED: false // Set to true manually or via admin function when playoffs start
 };
@@ -150,7 +150,7 @@ function initializeSheet(sheet, sheetName) {
   const headers = {
     'Users': ['email', 'displayName', 'createdAt', 'lastLogin'],
     'Sessions': ['token', 'email', 'expiresAt'],
-    'Picks': ['email', 'conference', 'round', 'teamId', 'submittedAt'],
+    'Picks': ['email', 'conference', 'round', 'game', 'teamId', 'submittedAt'],
     'Groups': ['groupId', 'name', 'isPublic', 'buyinType', 'buyinPrice', 'paymentLink', 'creatorEmail', 'pointsR1', 'pointsR2', 'pointsR3', 'pointsSB', 'createdAt'],
     'GroupMembers': ['groupId', 'email', 'joinedAt'],
     'Config': ['key', 'value']

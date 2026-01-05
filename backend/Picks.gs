@@ -5,7 +5,7 @@
 
 /**
  * Save user's bracket picks
- * picks: Array of { conference, round, teamId }
+ * picks: Array of { conference, round, game, teamId }
  */
 function savePicks(sessionToken, picks) {
   const email = getEmailFromSession(sessionToken);
@@ -30,11 +30,12 @@ function savePicks(sessionToken, picks) {
 
   // Insert new picks
   picks.forEach(pick => {
-    if (pick.conference && pick.round && pick.teamId) {
+    if (pick.conference && pick.round && pick.game && pick.teamId) {
       picksSheet.appendRow([
         email,
         pick.conference,
         pick.round,
+        pick.game,
         pick.teamId,
         now
       ]);
@@ -73,8 +74,9 @@ function getUserPicksByEmail(email) {
       picks.push({
         conference: data[i][1],
         round: data[i][2],
-        teamId: data[i][3],
-        submittedAt: data[i][4]
+        game: data[i][3],
+        teamId: data[i][4],
+        submittedAt: data[i][5]
       });
     }
   }
@@ -113,7 +115,7 @@ function getAggregateStats() {
   const picksSheet = getSheet('Picks');
   const data = picksSheet.getDataRange().getValues();
 
-  // Count picks per team per round
+  // Count picks per team per round (ignoring game number for stats)
   const stats = {};
   const userCount = new Set();
 
@@ -121,10 +123,12 @@ function getAggregateStats() {
     const email = data[i][0];
     const conference = data[i][1];
     const round = data[i][2];
-    const teamId = data[i][3];
+    // game is data[i][3] - not needed for aggregate stats
+    const teamId = data[i][4];
 
     userCount.add(email);
 
+    // For aggregate stats, we just care about which team was picked to win each round
     const key = `${conference}-${round}-${teamId}`;
     if (!stats[key]) {
       stats[key] = {

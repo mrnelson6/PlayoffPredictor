@@ -37,24 +37,75 @@
     <section class="bracket-section">
       <h2 class="section-title">2026 NFL Playoff Bracket</h2>
       <div class="bracket-container" id="bracketContainer">
-        <!-- AFC Side -->
-        <div class="conference afc">
-          <h3 class="conference-title">AFC</h3>
+        <!-- NFC Side (Left) -->
+        <div class="conference nfc">
+          <h3 class="conference-title">NFC</h3>
           <div class="bracket-rounds">
-            <!-- Wild Card -->
+            <!-- Wild Card (far left) -->
             <div class="round wild-card">
               <h4 class="round-title">Wild Card</h4>
-              <div class="matchup" data-conference="AFC" data-round="1" data-game="1">
+              <div class="matchup" data-conference="NFC" data-round="1" data-game="1">
                 <div class="team-slot" data-seed="2" data-position="top"></div>
                 <div class="team-slot" data-seed="7" data-position="bottom"></div>
               </div>
-              <div class="matchup" data-conference="AFC" data-round="1" data-game="2">
+              <div class="matchup" data-conference="NFC" data-round="1" data-game="2">
                 <div class="team-slot" data-seed="3" data-position="top"></div>
                 <div class="team-slot" data-seed="6" data-position="bottom"></div>
               </div>
-              <div class="matchup" data-conference="AFC" data-round="1" data-game="3">
+              <div class="matchup" data-conference="NFC" data-round="1" data-game="3">
                 <div class="team-slot" data-seed="4" data-position="top"></div>
                 <div class="team-slot" data-seed="5" data-position="bottom"></div>
+              </div>
+            </div>
+
+            <!-- Divisional -->
+            <div class="round divisional">
+              <h4 class="round-title">Divisional</h4>
+              <div class="matchup" data-conference="NFC" data-round="2" data-game="1">
+                <div class="team-slot" data-seed="1" data-position="top"></div>
+                <div class="team-slot" data-from="lowest" data-position="bottom"></div>
+              </div>
+              <div class="matchup" data-conference="NFC" data-round="2" data-game="2">
+                <div class="team-slot" data-from="middle-high" data-position="top"></div>
+                <div class="team-slot" data-from="middle-low" data-position="bottom"></div>
+              </div>
+            </div>
+
+            <!-- Conference Championship (near center) -->
+            <div class="round conference-champ">
+              <h4 class="round-title">NFC Championship</h4>
+              <div class="matchup" data-conference="NFC" data-round="3" data-game="1">
+                <div class="team-slot" data-from="div-1" data-position="top"></div>
+                <div class="team-slot" data-from="div-2" data-position="bottom"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Super Bowl (Center) -->
+        <div class="super-bowl">
+          <h3 class="super-bowl-title">Super Bowl</h3>
+          <div class="matchup super-bowl-matchup" data-conference="SB" data-round="4" data-game="1">
+            <div class="team-slot" data-from="nfc-champ" data-position="top"></div>
+            <div class="vs-badge">VS</div>
+            <div class="team-slot" data-from="afc-champ" data-position="bottom"></div>
+          </div>
+          <div class="champion-slot" id="championSlot">
+            <span class="champion-label">Champion</span>
+            <div class="team-slot champion" data-from="sb-winner"></div>
+          </div>
+        </div>
+
+        <!-- AFC Side (Right) -->
+        <div class="conference afc">
+          <h3 class="conference-title">AFC</h3>
+          <div class="bracket-rounds">
+            <!-- Conference Championship (near center) -->
+            <div class="round conference-champ">
+              <h4 class="round-title">AFC Championship</h4>
+              <div class="matchup" data-conference="AFC" data-round="3" data-game="1">
+                <div class="team-slot" data-from="div-1" data-position="top"></div>
+                <div class="team-slot" data-from="div-2" data-position="bottom"></div>
               </div>
             </div>
 
@@ -71,71 +122,20 @@
               </div>
             </div>
 
-            <!-- Conference Championship -->
-            <div class="round conference-champ">
-              <h4 class="round-title">AFC Championship</h4>
-              <div class="matchup" data-conference="AFC" data-round="3" data-game="1">
-                <div class="team-slot" data-from="div-1" data-position="top"></div>
-                <div class="team-slot" data-from="div-2" data-position="bottom"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Super Bowl -->
-        <div class="super-bowl">
-          <h3 class="super-bowl-title">Super Bowl</h3>
-          <div class="matchup super-bowl-matchup" data-conference="SB" data-round="4" data-game="1">
-            <div class="team-slot" data-from="afc-champ" data-position="top"></div>
-            <div class="vs-badge">VS</div>
-            <div class="team-slot" data-from="nfc-champ" data-position="bottom"></div>
-          </div>
-          <div class="champion-slot" id="championSlot">
-            <span class="champion-label">Champion</span>
-            <div class="team-slot champion" data-from="sb-winner"></div>
-          </div>
-        </div>
-
-        <!-- NFC Side -->
-        <div class="conference nfc">
-          <h3 class="conference-title">NFC</h3>
-          <div class="bracket-rounds">
-            <!-- Conference Championship -->
-            <div class="round conference-champ">
-              <h4 class="round-title">NFC Championship</h4>
-              <div class="matchup" data-conference="NFC" data-round="3" data-game="1">
-                <div class="team-slot" data-from="div-1" data-position="top"></div>
-                <div class="team-slot" data-from="div-2" data-position="bottom"></div>
-              </div>
-            </div>
-
-            <!-- Divisional -->
-            <div class="round divisional">
-              <h4 class="round-title">Divisional</h4>
-              <div class="matchup" data-conference="NFC" data-round="2" data-game="1">
-                <div class="team-slot" data-from="middle-high" data-position="top"></div>
-                <div class="team-slot" data-from="middle-low" data-position="bottom"></div>
-              </div>
-              <div class="matchup" data-conference="NFC" data-round="2" data-game="2">
-                <div class="team-slot" data-seed="1" data-position="top"></div>
-                <div class="team-slot" data-from="lowest" data-position="bottom"></div>
-              </div>
-            </div>
-
-            <!-- Wild Card -->
+            <!-- Wild Card (far right) -->
             <div class="round wild-card">
               <h4 class="round-title">Wild Card</h4>
-              <div class="matchup" data-conference="NFC" data-round="1" data-game="1">
-                <div class="team-slot" data-seed="4" data-position="top"></div>
-                <div class="team-slot" data-seed="5" data-position="bottom"></div>
+              <div class="matchup" data-conference="AFC" data-round="1" data-game="1">
+                <div class="team-slot" data-seed="2" data-position="top"></div>
+                <div class="team-slot" data-seed="7" data-position="bottom"></div>
               </div>
-              <div class="matchup" data-conference="NFC" data-round="1" data-game="2">
+              <div class="matchup" data-conference="AFC" data-round="1" data-game="2">
                 <div class="team-slot" data-seed="3" data-position="top"></div>
                 <div class="team-slot" data-seed="6" data-position="bottom"></div>
               </div>
-              <div class="matchup" data-conference="NFC" data-round="1" data-game="3">
-                <div class="team-slot" data-seed="2" data-position="top"></div>
-                <div class="team-slot" data-seed="7" data-position="bottom"></div>
+              <div class="matchup" data-conference="AFC" data-round="1" data-game="3">
+                <div class="team-slot" data-seed="4" data-position="top"></div>
+                <div class="team-slot" data-seed="5" data-position="bottom"></div>
               </div>
             </div>
           </div>

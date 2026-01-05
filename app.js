@@ -9,7 +9,7 @@
 const CONFIG = {
   
   // UPDATE THIS after deploying your Apps Script
-  API_URL: 'https://script.google.com/macros/s/AKfycbzHZHVShJjEBv3kvR-AkZa77AbUSl7iH6txKob_kae7Pn-qba-LAJOJtBYLeaXlicAY/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbx_K7q_4naFXSieVtcXq0_Nx7OTYBavNYQ9W-9mh2l8P1SO_MFMaZ-E2yCBvEHjplMd/exec',
 
   // ESPN API endpoints
   ESPN_SCOREBOARD: 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
@@ -329,31 +329,60 @@ function resetPicks() {
   updateBracketStatus();
 }
 
-function getPick(conference, round) {
-  return state.picks.find(p => p.conference === conference && p.round === round);
+// Get pick for a specific matchup (conference, round, game)
+function getPick(conference, round, game) {
+  return state.picks.find(p =>
+    p.conference === conference &&
+    p.round === round &&
+    p.game === game
+  );
 }
 
-function setPick(conference, round, teamId) {
-  // Remove existing pick for this slot
-  state.picks = state.picks.filter(p => !(p.conference === conference && p.round === round));
+// Set a pick for a specific matchup
+function setPick(conference, round, game, teamId) {
+  // Remove existing pick for this specific matchup
+  state.picks = state.picks.filter(p =>
+    !(p.conference === conference && p.round === round && p.game === game)
+  );
 
   // Add new pick
   if (teamId) {
-    state.picks.push({ conference, round, teamId });
+    state.picks.push({ conference, round, game, teamId });
   }
 
-  // Clear downstream picks that depended on a different selection
-  clearDownstreamPicks(conference, round);
+  // Clear downstream picks that might be invalidated
+  clearDownstreamPicks(conference, round, teamId);
 
   renderBracket();
   updateBracketStatus();
 }
 
-function clearDownstreamPicks(conference, round) {
-  // Clear picks in later rounds that might be affected
-  for (let r = round + 1; r <= 4; r++) {
-    const conf = r === 4 ? 'SB' : conference;
-    state.picks = state.picks.filter(p => !(p.conference === conf && p.round === r));
+function clearDownstreamPicks(conference, round, newTeamId) {
+  // When a pick changes, we need to clear picks in later rounds
+  // that might have depended on a different team advancing
+
+  if (round === 1) {
+    // Changing a Wild Card pick clears Divisional and beyond for this conference
+    state.picks = state.picks.filter(p =>
+      !(p.conference === conference && p.round >= 2)
+    );
+    // Also clear Super Bowl if it involved this conference's teams
+    state.picks = state.picks.filter(p =>
+      !(p.conference === 'SB')
+    );
+  } else if (round === 2) {
+    // Changing a Divisional pick clears Conference Championship and Super Bowl
+    state.picks = state.picks.filter(p =>
+      !(p.conference === conference && p.round >= 3)
+    );
+    state.picks = state.picks.filter(p =>
+      !(p.conference === 'SB')
+    );
+  } else if (round === 3) {
+    // Changing Conference Championship clears Super Bowl
+    state.picks = state.picks.filter(p =>
+      !(p.conference === 'SB')
+    );
   }
 }
 
@@ -371,129 +400,156 @@ function renderBracket() {
 function renderConference(conference) {
   const teams = state.playoffTeams[conference];
 
-  // Round 1: Wild Card
+  // Round 1: Wild Card - Fixed matchups based on seeding
+  // Game 1: 2 vs 7, Game 2: 3 vs 6, Game 3: 4 vs 5
   renderMatchup(conference, 1, 1, [teams[2], teams[7]]);
   renderMatchup(conference, 1, 2, [teams[3], teams[6]]);
   renderMatchup(conference, 1, 3, [teams[4], teams[5]]);
 
-  // Round 2: Divisional
-  const r1Winners = getWildCardWinners(conference);
-  const divMatchups = getDivisionalMatchups(conference, teams[1], r1Winners);
+  // Round 2: Divisional - Based on Wild Card winners
+  // #1 seed plays lowest remaining seed, other two play each other
+  const wcWinners = getWildCardWinners(conference);
+  const divMatchups = buildDivisionalMatchups(conference, teams[1], wcWinners);
   renderMatchup(conference, 2, 1, divMatchups[0]);
   renderMatchup(conference, 2, 2, divMatchups[1]);
 
-  // Round 3: Conference Championship
-  const r2Winners = getDivisionalWinners(conference);
-  renderMatchup(conference, 3, 1, r2Winners);
+  // Round 3: Conference Championship - Based on Divisional winners
+  const divWinners = getDivisionalWinners(conference);
+  renderMatchup(conference, 3, 1, divWinners);
 }
 
+// Get Wild Card winners based on user picks for each game
 function getWildCardWinners(conference) {
   const winners = [];
+
   for (let game = 1; game <= 3; game++) {
-    const pick = state.picks.find(p =>
-      p.conference === conference && p.round === 1
-    );
-    // Get the specific winner for each game based on picks
-    const matchup = getWildCardMatchup(conference, game);
-    const winner = state.picks.find(p =>
-      p.conference === conference &&
-      p.round === 1 &&
-      matchup.some(t => t?.teamId === p.teamId)
-    );
-    if (winner) {
-      const team = state.playoffTeams[conference][Object.keys(state.playoffTeams[conference]).find(
-        seed => state.playoffTeams[conference][seed]?.teamId === winner.teamId
-      )];
-      if (team) winners.push(team);
+    const pick = getPick(conference, 1, game);
+    if (pick) {
+      const team = findTeamById(conference, pick.teamId);
+      if (team) {
+        winners.push(team);
+      }
     }
   }
+
   return winners;
 }
 
-function getWildCardMatchup(conference, game) {
-  const teams = state.playoffTeams[conference];
-  switch (game) {
-    case 1: return [teams[2], teams[7]];
-    case 2: return [teams[3], teams[6]];
-    case 3: return [teams[4], teams[5]];
-    default: return [];
+// Build Divisional round matchups based on NFL rules
+// #1 seed plays lowest remaining seed, other two winners play each other
+function buildDivisionalMatchups(conference, topSeed, wcWinners) {
+  if (wcWinners.length < 3) {
+    // Not all Wild Card picks made yet - show TBD
+    return [
+      [topSeed, null],
+      [null, null]
+    ];
   }
-}
 
-function getDivisionalMatchups(conference, topSeed, wildcardWinners) {
-  // Sort winners by seed (lowest seed plays #1)
-  const sorted = [...wildcardWinners].sort((a, b) => (a?.seed || 99) - (b?.seed || 99));
+  // Sort winners by seed (higher seed number = lower seed)
+  const sorted = [...wcWinners].sort((a, b) => b.seed - a.seed);
 
-  // #1 seed plays lowest remaining seed
-  // Other two winners play each other
-  const lowest = sorted[sorted.length - 1];
-  const others = sorted.slice(0, 2);
+  // Lowest seed (highest number) plays #1
+  const lowestSeed = sorted[0];
+  // Other two play each other (sorted by seed for consistent display)
+  const others = sorted.slice(1).sort((a, b) => a.seed - b.seed);
 
   return [
-    [topSeed, lowest],
-    [others[0], others[1]]
+    [topSeed, lowestSeed],      // Game 1: #1 vs lowest remaining
+    [others[0], others[1]]       // Game 2: other two winners
   ];
 }
 
+// Get Divisional round winners based on user picks
 function getDivisionalWinners(conference) {
   const winners = [];
+
   for (let game = 1; game <= 2; game++) {
-    const pick = state.picks.find(p =>
-      p.conference === conference &&
-      p.round === 2 &&
-      getPickTeamForDivisional(conference, game, p.teamId)
-    );
+    const pick = getPick(conference, 2, game);
     if (pick) {
       const team = findTeamById(conference, pick.teamId);
-      if (team) winners.push(team);
+      if (team) {
+        winners.push(team);
+      }
     }
   }
+
   return winners;
 }
 
-function getPickTeamForDivisional(conference, game, teamId) {
-  // Check if this teamId could be in this divisional game
-  return true; // Simplified - actual logic would check matchup validity
-}
-
+// Find a team by ID within a conference
 function findTeamById(conference, teamId) {
+  // Check the specified conference first
   const teams = state.playoffTeams[conference];
-  for (const seed in teams) {
-    if (teams[seed]?.teamId === teamId) {
-      return teams[seed];
+  if (teams) {
+    for (const seed in teams) {
+      if (teams[seed]?.teamId === teamId) {
+        return teams[seed];
+      }
     }
   }
+
+  // For Super Bowl, check both conferences
+  if (conference === 'SB') {
+    for (const conf of ['AFC', 'NFC']) {
+      const confTeams = state.playoffTeams[conf];
+      for (const seed in confTeams) {
+        if (confTeams[seed]?.teamId === teamId) {
+          return confTeams[seed];
+        }
+      }
+    }
+  }
+
   return null;
 }
 
 function renderSuperBowl() {
-  const afcChamp = getConferenceChampion('AFC');
-  const nfcChamp = getConferenceChampion('NFC');
+  // Get conference champions from user's round 3 picks
+  const afcChampPick = getPick('AFC', 3, 1);
+  const nfcChampPick = getPick('NFC', 3, 1);
+
+  const afcChamp = afcChampPick ? findTeamById('AFC', afcChampPick.teamId) : null;
+  const nfcChamp = nfcChampPick ? findTeamById('NFC', nfcChampPick.teamId) : null;
 
   const sbMatchup = document.querySelector('.super-bowl-matchup');
   if (sbMatchup) {
     const slots = sbMatchup.querySelectorAll('.team-slot');
-    renderTeamSlot(slots[0], afcChamp, 'SB', 4);
-    renderTeamSlot(slots[1], nfcChamp, 'SB', 4);
+    // NFC on top (left side of bracket), AFC on bottom (right side of bracket)
+    renderTeamSlot(slots[0], nfcChamp, 'SB', 4, 1, true);
+    renderTeamSlot(slots[1], afcChamp, 'SB', 4, 1, true);
   }
 
-  // Champion
-  const sbWinner = state.picks.find(p => p.conference === 'SB' && p.round === 4);
+  // Champion display - show who user picked to win Super Bowl
+  const sbWinnerPick = getPick('SB', 4, 1);
   const championSlot = document.querySelector('.champion-slot .team-slot');
-  if (championSlot && sbWinner) {
-    const team = findTeamById('AFC', sbWinner.teamId) || findTeamById('NFC', sbWinner.teamId);
-    renderTeamSlot(championSlot, team, 'CHAMP', 5, false);
-  } else if (championSlot) {
-    renderTeamSlot(championSlot, null, 'CHAMP', 5, false);
+
+  if (championSlot) {
+    if (sbWinnerPick) {
+      const team = findTeamById('SB', sbWinnerPick.teamId);
+      renderChampionSlot(championSlot, team);
+    } else {
+      renderChampionSlot(championSlot, null);
+    }
   }
 }
 
-function getConferenceChampion(conference) {
-  const pick = state.picks.find(p => p.conference === conference && p.round === 3);
-  if (pick) {
-    return findTeamById(conference, pick.teamId);
+function renderChampionSlot(slot, team) {
+  slot.innerHTML = '';
+  slot.className = 'team-slot champion';
+
+  if (!team) {
+    slot.classList.add('empty');
+    slot.innerHTML = '<span class="team-name">?</span>';
+    return;
   }
-  return null;
+
+  slot.innerHTML = `
+    <img src="${team.logo}" alt="${team.abbreviation}" class="team-logo" onerror="this.style.display='none'">
+    <div class="team-info">
+      <div class="team-name">${team.shortName || team.name}</div>
+    </div>
+  `;
 }
 
 function renderMatchup(conference, round, game, teams) {
@@ -504,14 +560,21 @@ function renderMatchup(conference, round, game, teams) {
   if (!matchup) return;
 
   const slots = matchup.querySelectorAll('.team-slot');
+  const currentPick = getPick(conference, round, game);
 
   slots.forEach((slot, index) => {
     const team = teams[index];
-    renderTeamSlot(slot, team, conference, round);
+    const isSelected = currentPick && team && currentPick.teamId === team.teamId;
+    renderTeamSlot(slot, team, conference, round, game, true, isSelected);
   });
 }
 
-function renderTeamSlot(slot, team, conference, round, clickable = true) {
+function renderTeamSlot(slot, team, conference, round, game, clickable = true, isSelected = false) {
+  // Remove old event listeners by cloning
+  const newSlot = slot.cloneNode(false);
+  slot.parentNode.replaceChild(newSlot, slot);
+  slot = newSlot;
+
   slot.innerHTML = '';
   slot.className = 'team-slot';
 
@@ -521,14 +584,7 @@ function renderTeamSlot(slot, team, conference, round, clickable = true) {
     return;
   }
 
-  // Check if this team is picked for this round
-  const isPicked = state.picks.some(p =>
-    p.teamId === team.teamId &&
-    p.conference === conference &&
-    p.round === round
-  );
-
-  if (isPicked) {
+  if (isSelected) {
     slot.classList.add('selected');
   }
 
@@ -545,17 +601,13 @@ function renderTeamSlot(slot, team, conference, round, clickable = true) {
     </div>
   `;
 
-  // Store team data for click handler
-  slot.dataset.teamId = team.teamId;
-  slot.dataset.conference = conference;
-  slot.dataset.round = round;
-
+  // Add click handler
   if (clickable && state.user && !state.playoffsLocked) {
-    slot.addEventListener('click', () => handleTeamClick(slot, team, conference, round));
+    slot.addEventListener('click', () => handleTeamClick(team, conference, round, game));
   }
 }
 
-function handleTeamClick(slot, team, conference, round) {
+function handleTeamClick(team, conference, round, game) {
   if (!state.user) {
     openModal('loginModal');
     return;
@@ -566,14 +618,14 @@ function handleTeamClick(slot, team, conference, round) {
     return;
   }
 
-  // Toggle selection
-  const currentPick = getPick(conference, round);
+  const currentPick = getPick(conference, round, game);
+
   if (currentPick?.teamId === team.teamId) {
-    // Deselect
-    setPick(conference, round, null);
+    // Deselect - clicking same team again
+    setPick(conference, round, game, null);
   } else {
-    // Select
-    setPick(conference, round, team.teamId);
+    // Select this team as winner
+    setPick(conference, round, game, team.teamId);
   }
 }
 

@@ -313,12 +313,14 @@ h4 { font-size: 1rem; }
   gap: var(--spacing-md);
 }
 
-.afc .bracket-rounds {
+/* NFC on left: Wild Card -> Divisional -> Championship (left to right) */
+.nfc .bracket-rounds {
   flex-direction: row;
 }
 
-.nfc .bracket-rounds {
-  flex-direction: row-reverse;
+/* AFC on right: Championship -> Divisional -> Wild Card (left to right, HTML already ordered) */
+.afc .bracket-rounds {
+  flex-direction: row;
 }
 
 .round {
