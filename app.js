@@ -8,7 +8,7 @@
 
 const CONFIG = {
   // UPDATE THESE with your Supabase project details
-  SUPABASE_URL: 'https://mvdgiqspcywbmrvlphtp.supabase.co',
+  SUPABASE_URL: 'https://mvdgiqspcywbmrvlphtp.supabaseClient.co',
   SUPABASE_ANON_KEY: 'sb_publishable_cUgE-KLyMycCPxAOXa8FeA_CkH6Unai',
 
   // ESPN API endpoints
@@ -23,7 +23,7 @@ const CONFIG = {
 };
 
 // Initialize Supabase client
-const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const supabaseClient = window.supabaseClient.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
 // ============================================
 // State Management
@@ -54,14 +54,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   await handleAuthCallback();
 
   // Get current session
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await supabaseClient.auth.getSession();
   if (session) {
     state.user = session.user;
     await loadProfile();
   }
 
   // Listen for auth changes
-  supabase.auth.onAuthStateChange(async (event, session) => {
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session) {
       state.user = session.user;
       await loadProfile();
@@ -131,7 +131,7 @@ async function handleAuthCallback() {
 // ============================================
 
 async function sendMagicLink(email) {
-  const { error } = await supabase.auth.signInWithOtp({
+  const { error } = await supabaseClient.auth.signInWithOtp({
     email: email,
     options: {
       emailRedirectTo: CONFIG.SITE_URL
@@ -146,7 +146,7 @@ async function sendMagicLink(email) {
 }
 
 async function logout() {
-  await supabase.auth.signOut();
+  await supabaseClient.auth.signOut();
   state.user = null;
   state.profile = null;
   state.picks = [];
@@ -1013,7 +1013,7 @@ function renderGroups() {
 // ============================================
 
 async function loadStats() {
-  const { data, error } = await supabase.rpc('get_aggregate_stats');
+  const { data, error } = await supabaseClient.rpc('get_aggregate_stats');
 
   const content = document.getElementById('statsContent');
 
