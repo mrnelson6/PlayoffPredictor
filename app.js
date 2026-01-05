@@ -117,11 +117,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Handle magic link callback
 async function handleAuthCallback() {
+  // Check if there are auth tokens in the URL hash
   const hashParams = new URLSearchParams(window.location.hash.substring(1));
   const accessToken = hashParams.get('access_token');
+  const refreshToken = hashParams.get('refresh_token');
 
-  if (accessToken) {
-    // Clear the hash from URL
+  if (accessToken && refreshToken) {
+    // Set the session from the URL tokens
+    const { data, error } = await supabaseClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+
+    if (error) {
+      console.error('Auth callback error:', error);
+      showToast('Sign in failed: ' + error.message, 'error');
+    }
+
+    // Clear the hash from URL after processing
     window.history.replaceState({}, document.title, window.location.pathname);
   }
 }
