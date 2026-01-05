@@ -264,6 +264,82 @@ Edit `styles.css` - uses CSS custom properties for easy theming:
 
 ---
 
+## Debug / Testing Mode
+
+The app includes debug functions accessible from the browser console (F12 → Console). To use them, you must first enable write access in Supabase.
+
+### Enable Debug Mode
+
+Run this SQL in Supabase SQL Editor to allow updating config and results:
+
+```sql
+-- Enable debug write access (run to enable)
+CREATE POLICY "Debug: update config" ON config
+  FOR UPDATE USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Debug: insert results" ON actual_results
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Debug: update results" ON actual_results
+  FOR UPDATE USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Debug: delete results" ON actual_results
+  FOR DELETE USING (auth.uid() IS NOT NULL);
+```
+
+### Disable Debug Mode
+
+Run this SQL to remove debug access for production:
+
+```sql
+-- Disable debug write access (run for production)
+DROP POLICY IF EXISTS "Debug: update config" ON config;
+DROP POLICY IF EXISTS "Debug: insert results" ON actual_results;
+DROP POLICY IF EXISTS "Debug: update results" ON actual_results;
+DROP POLICY IF EXISTS "Debug: delete results" ON actual_results;
+```
+
+### Debug Console Commands
+
+Once debug mode is enabled, use these commands in the browser console:
+
+```javascript
+// Lock/unlock brackets
+debugLockBrackets()      // Lock brackets (simulate playoffs started)
+debugUnlockBrackets()    // Unlock brackets
+
+// Check current state
+debugStatus()
+
+// List all teams with their IDs
+debugListTeams()
+
+// Set game winners (conference, round, game, teamId)
+debugSetWinner('AFC', 1, 1, '12')  // AFC Wild Card Game 1
+debugSetWinner('NFC', 2, 1, '19')  // NFC Divisional Game 1
+debugSetWinner('SB', 4, 1, '12')   // Super Bowl
+
+// View all set results
+debugShowResults()
+
+// Clear a single result
+debugClearWinner('AFC', 1, 1)
+
+// Clear ALL results
+debugClearAllWinners()
+```
+
+### Round Reference
+
+| Round | Name | Games per Conference |
+|-------|------|---------------------|
+| 1 | Wild Card | 3 |
+| 2 | Divisional | 2 |
+| 3 | Conference Championship | 1 |
+| 4 | Super Bowl | 1 (use 'SB' for conference) |
+
+---
+
 ## License
 
 MIT

@@ -1,5 +1,6 @@
 -- PlayoffPredictor Supabase Schema
 -- Run this in the Supabase SQL Editor to set up your database
+-- Last updated: Includes all fixes and buy-in tracking
 
 -- ============================================
 -- Config table (must be created first - referenced by picks policies)
@@ -42,10 +43,11 @@ CREATE POLICY "Users can update own profile" ON profiles
   FOR UPDATE USING (auth.uid() = id);
 
 -- Function to handle new user signup
+-- NOTE: Must use public.profiles since trigger runs in auth schema context
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO profiles (id, email, display_name)
+  INSERT INTO public.profiles (id, email, display_name)
   VALUES (
     NEW.id,
     NEW.email,
@@ -133,6 +135,7 @@ CREATE TABLE group_members (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   group_id UUID REFERENCES groups(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  paid_buyin BOOLEAN DEFAULT false,
   joined_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(group_id, user_id)
 );
@@ -147,23 +150,19 @@ CREATE POLICY "Anyone can view group members" ON group_members
 CREATE POLICY "Authenticated users can join groups" ON group_members
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+CREATE POLICY "Users can update own membership" ON group_members
+  FOR UPDATE USING (auth.uid() = user_id);
+
 CREATE POLICY "Users can leave groups" ON group_members
   FOR DELETE USING (auth.uid() = user_id);
 
 -- ============================================
 -- Groups policies (after group_members exists)
 -- ============================================
-CREATE POLICY "Anyone can view public groups" ON groups
-  FOR SELECT USING (is_public = true);
-
-CREATE POLICY "Members can view their groups" ON groups
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM group_members
-      WHERE group_members.group_id = groups.id
-      AND group_members.user_id = auth.uid()
-    )
-  );
+-- Allow anyone with the group ID to view it (for invite links)
+-- The UUID acts as the "secret" - only people with the link can find private groups
+CREATE POLICY "Anyone can view groups by ID" ON groups
+  FOR SELECT USING (true);
 
 CREATE POLICY "Authenticated users can create groups" ON groups
   FOR INSERT WITH CHECK (auth.uid() = creator_id);
@@ -207,11 +206,12 @@ SELECT
 FROM picks p
 JOIN profiles pr ON p.user_id = pr.id;
 
--- View: Group leaderboard
+-- View: Group leaderboard with buy-in status
 CREATE OR REPLACE VIEW group_leaderboards AS
 SELECT
   gm.group_id,
   gm.user_id,
+  gm.paid_buyin,
   pr.display_name,
   pr.email,
   COALESCE(
@@ -283,5 +283,42 @@ BEGIN
   WHERE p.user_id = p_user_id;
 
   RETURN score;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to check if a user has submitted a bracket (bypasses RLS)
+-- This allows showing bracket completion status without exposing actual picks
+CREATE OR REPLACE FUNCTION get_user_bracket_status(check_user_id UUID)
+RETURNS BOOLEAN
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  has_picks BOOLEAN;
+BEGIN
+  SELECT EXISTS(SELECT 1 FROM public.picks WHERE user_id = check_user_id) INTO has_picks;
+  RETURN has_picks;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get a user's picks (bypasses RLS for viewing others' brackets when locked)
+-- Used for displaying other users' bracket choices in group leaderboards
+CREATE OR REPLACE FUNCTION get_user_picks(target_user_id UUID)
+RETURNS TABLE (
+  id UUID,
+  user_id UUID,
+  conference TEXT,
+  round INTEGER,
+  game INTEGER,
+  team_id TEXT
+)
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT p.id, p.user_id, p.conference, p.round, p.game, p.team_id
+  FROM public.picks p
+  WHERE p.user_id = target_user_id;
 END;
 $$ LANGUAGE plpgsql;

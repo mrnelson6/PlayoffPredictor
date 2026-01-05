@@ -42,7 +42,8 @@ const state = {
   groups: [],
   publicGroups: [],
   playoffsLocked: false,
-  currentGroupTab: 'my-groups'
+  currentGroupTab: 'my-groups',
+  actualResults: {} // Maps "conference-round-game" to winning team_id
 };
 
 // ============================================
@@ -102,6 +103,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Render bracket
   renderBracket();
+
+  // Load actual results for scoring display
+  await loadActualResults();
 
   // Load user data if logged in
   if (state.user) {
@@ -333,6 +337,148 @@ async function loadUserPicks() {
   }
 }
 
+async function loadActualResults() {
+  const { data, error } = await supabaseClient
+    .from('actual_results')
+    .select('*');
+
+  if (data) {
+    state.actualResults = {};
+    data.forEach(r => {
+      state.actualResults[`${r.conference}-${r.round}-${r.game}`] = r.team_id;
+    });
+    renderBracket();
+  }
+}
+
+function getPickResult(conference, round, game, teamId) {
+  // For Wild Card (round 1), matchups are fixed, so check specific game
+  if (round === 1) {
+    const key = `${conference}-${round}-${game}`;
+    const actualWinner = state.actualResults[key];
+    if (!actualWinner) return null; // No result yet
+    return actualWinner === teamId ? 'correct' : 'incorrect';
+  }
+
+  // For Divisional+ (rounds 2-4):
+  // - CORRECT: team won a game in this round
+  // - INCORRECT: team is eliminated (lost in this round or earlier)
+  // - PENDING: neither (game hasn't happened yet)
+
+  const roundWinners = getRoundWinners(conference, round);
+
+  // If team won this round, correct
+  if (roundWinners.includes(teamId)) {
+    return 'correct';
+  }
+
+  // Check if team is eliminated
+  if (isTeamEliminated(teamId, conference, round)) {
+    return 'incorrect';
+  }
+
+  // Game hasn't happened yet
+  return null;
+}
+
+function getRoundWinners(conference, round) {
+  return Object.entries(state.actualResults)
+    .filter(([key]) => key.startsWith(`${conference}-${round}-`))
+    .map(([, winnerId]) => winnerId);
+}
+
+function isTeamEliminated(teamId, conference, upToRound) {
+  // For Super Bowl picks, find which conference the team is actually in
+  let teamConference = conference;
+  if (conference === 'SB') {
+    teamConference = getTeamConference(teamId);
+    if (!teamConference) return false;
+  }
+
+  // Check if eliminated in Wild Card (round 1)
+  if (wasEliminatedInWildCard(teamConference, teamId)) {
+    return true;
+  }
+
+  // Check if eliminated in Divisional (round 2)
+  // Only relevant if checking for round 3+ or Super Bowl
+  if (upToRound >= 3 || conference === 'SB') {
+    if (wasEliminatedInRound(teamConference, 2, teamId, 2)) {
+      return true;
+    }
+  }
+
+  // Check if eliminated in current round (for rounds 2+)
+  // We can only determine this if we have ALL results for the round
+  if (upToRound >= 2) {
+    const gamesInRound = upToRound === 2 ? 2 : 1; // Divisional has 2 games, others have 1
+    if (wasEliminatedInRound(conference, upToRound, teamId, gamesInRound)) {
+      return true;
+    }
+  }
+
+  // Check if eliminated in Conference Championship (round 3)
+  // Only relevant for Super Bowl picks
+  if (conference === 'SB') {
+    if (wasEliminatedInRound(teamConference, 3, teamId, 1)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getTeamConference(teamId) {
+  for (const conf of ['AFC', 'NFC']) {
+    const teams = state.playoffTeams[conf];
+    if (teams) {
+      for (const seed in teams) {
+        if (teams[seed]?.teamId === teamId) {
+          return conf;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function wasEliminatedInWildCard(conference, teamId) {
+  // Wild Card matchups are fixed by seed
+  const wcMatchups = [
+    { game: 1, seeds: [2, 7] },
+    { game: 2, seeds: [3, 6] },
+    { game: 3, seeds: [4, 5] }
+  ];
+
+  for (const matchup of wcMatchups) {
+    const winner = state.actualResults[`${conference}-1-${matchup.game}`];
+    if (winner) {
+      // Get team IDs for this matchup
+      const team1 = state.playoffTeams[conference]?.[matchup.seeds[0]]?.teamId;
+      const team2 = state.playoffTeams[conference]?.[matchup.seeds[1]]?.teamId;
+
+      // If our team was in this matchup and lost
+      if ((teamId === team1 || teamId === team2) && teamId !== winner) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function wasEliminatedInRound(conference, round, teamId, expectedGames) {
+  const winners = getRoundWinners(conference, round);
+
+  // Can only determine elimination if we have ALL results for the round
+  if (winners.length < expectedGames) {
+    return false;
+  }
+
+  // If we have all results and team isn't a winner, they're eliminated
+  return !winners.includes(teamId);
+}
+
 async function savePicks() {
   if (!state.user) {
     openModal('loginModal');
@@ -548,11 +694,23 @@ function renderChampionSlot(slot, team) {
     return;
   }
 
+  // Check if Super Bowl pick is correct/incorrect
+  const pickResult = getPickResult('SB', 4, 1, team.teamId);
+  if (pickResult === 'correct') {
+    slot.classList.add('correct');
+  } else if (pickResult === 'incorrect') {
+    slot.classList.add('incorrect');
+  }
+
+  const resultIcon = pickResult === 'correct' ? '<span class="result-icon">✓</span>' :
+                     pickResult === 'incorrect' ? '<span class="result-icon">✗</span>' : '';
+
   slot.innerHTML = `
     <img src="${team.logo}" alt="${team.abbreviation}" class="team-logo" onerror="this.style.display='none'">
     <div class="team-info">
       <div class="team-name">${team.shortName || team.name}</div>
     </div>
+    ${resultIcon}
   `;
 }
 
@@ -587,13 +745,26 @@ function renderTeamSlot(slot, team, conference, round, game, clickable = true, i
     return;
   }
 
+  // Check if this pick has a result (correct/incorrect)
+  let pickResult = null;
   if (isSelected) {
-    slot.classList.add('selected');
+    pickResult = getPickResult(conference, round, game, team.teamId);
+    if (pickResult === 'correct') {
+      slot.classList.add('correct');
+    } else if (pickResult === 'incorrect') {
+      slot.classList.add('incorrect');
+    } else {
+      slot.classList.add('selected'); // No result yet, show as selected (blue)
+    }
   }
 
   if (state.playoffsLocked || !state.user) {
     slot.classList.add('locked');
   }
+
+  // Add result indicator for selected picks
+  const resultIcon = pickResult === 'correct' ? '<span class="result-icon">✓</span>' :
+                     pickResult === 'incorrect' ? '<span class="result-icon">✗</span>' : '';
 
   slot.innerHTML = `
     <img src="${team.logo}" alt="${team.abbreviation}" class="team-logo" onerror="this.style.display='none'">
@@ -601,6 +772,7 @@ function renderTeamSlot(slot, team, conference, round, game, clickable = true, i
       <div class="team-name">${team.shortName || team.name}</div>
       <div class="team-seed">#${team.seed} seed</div>
     </div>
+    ${resultIcon}
   `;
 
   if (clickable && state.user && !state.playoffsLocked) {
@@ -711,6 +883,18 @@ async function loadUserGroups() {
     .eq('user_id', state.user.id);
 
   if (data) {
+    // Get member counts for all user's groups
+    const groupIds = data.map(d => d.groups.id);
+    const { data: memberCounts } = await supabaseClient
+      .from('group_members')
+      .select('group_id')
+      .in('group_id', groupIds);
+
+    const countMap = {};
+    memberCounts?.forEach(m => {
+      countMap[m.group_id] = (countMap[m.group_id] || 0) + 1;
+    });
+
     state.groups = data.map(d => ({
       ...d.groups,
       groupId: d.groups.id,
@@ -723,7 +907,8 @@ async function loadUserGroups() {
       pointsR2: d.groups.points_r2,
       pointsR3: d.groups.points_r3,
       pointsSB: d.groups.points_sb,
-      isCreator: d.groups.creator_id === state.user.id
+      isCreator: d.groups.creator_id === state.user.id,
+      memberCount: countMap[d.groups.id] || 0
     }));
     renderGroups();
   }
@@ -811,7 +996,7 @@ async function createGroup(groupData) {
   return { success: true, group, inviteLink };
 }
 
-async function joinGroup(groupId) {
+async function joinGroup(groupId, paidBuyin = false) {
   if (!state.user) {
     openModal('loginModal');
     return { error: 'Please sign in first' };
@@ -821,7 +1006,8 @@ async function joinGroup(groupId) {
     .from('group_members')
     .insert({
       group_id: groupId,
-      user_id: state.user.id
+      user_id: state.user.id,
+      paid_buyin: paidBuyin
     });
 
   if (error) {
@@ -872,14 +1058,41 @@ function showJoinGroupModal(group) {
     <p><strong>Scoring:</strong> WC: ${group.pointsR1} | Div: ${group.pointsR2} | Conf: ${group.pointsR3} | SB: ${group.pointsSB}</p>
   `;
 
-  document.getElementById('confirmJoinBtn').onclick = async () => {
-    const result = await joinGroup(group.groupId);
-    if (result.success) {
-      closeModal('joinGroupModal');
-    } else {
-      showFormMessage('joinGroupMessage', result.error, 'error');
-    }
-  };
+  const actionsDiv = document.querySelector('#joinGroupModal .modal-actions');
+
+  // Different buttons based on buy-in type
+  if (group.buyinType === 'optional') {
+    actionsDiv.innerHTML = `
+      <button class="btn btn-secondary" data-close>Cancel</button>
+      <button class="btn btn-secondary" id="joinNoBuyinBtn">Join (No Buy-in)</button>
+      <button class="btn btn-primary" id="joinWithBuyinBtn">Join with $${group.buyinPrice} Buy-in</button>
+    `;
+
+    document.getElementById('joinNoBuyinBtn').onclick = async () => {
+      const result = await joinGroup(group.groupId, false);
+      if (result.success) closeModal('joinGroupModal');
+      else showFormMessage('joinGroupMessage', result.error, 'error');
+    };
+
+    document.getElementById('joinWithBuyinBtn').onclick = async () => {
+      const result = await joinGroup(group.groupId, true);
+      if (result.success) closeModal('joinGroupModal');
+      else showFormMessage('joinGroupMessage', result.error, 'error');
+    };
+  } else {
+    actionsDiv.innerHTML = `
+      <button class="btn btn-secondary" data-close>Cancel</button>
+      <button class="btn btn-primary" id="confirmJoinBtn">Join Group</button>
+    `;
+
+    document.getElementById('confirmJoinBtn').onclick = async () => {
+      // For required buy-in, automatically mark as paid; for none, mark as false
+      const paidBuyin = group.buyinType === 'required';
+      const result = await joinGroup(group.groupId, paidBuyin);
+      if (result.success) closeModal('joinGroupModal');
+      else showFormMessage('joinGroupMessage', result.error, 'error');
+    };
+  }
 
   openModal('joinGroupModal');
 }
@@ -891,63 +1104,100 @@ async function openGroupDetail(groupId) {
     .eq('id', groupId)
     .single();
 
-  const { data: members } = await supabaseClient
-    .from('group_members')
-    .select(`
-      user_id,
-      profiles (
-        display_name,
-        email
-      )
-    `)
-    .eq('group_id', groupId);
-
   if (!group) {
     showToast('Group not found', 'error');
     return;
   }
 
+  // Get group members with paid_buyin status
+  const { data: memberData } = await supabaseClient
+    .from('group_members')
+    .select('user_id, paid_buyin')
+    .eq('group_id', groupId);
+
+  // Get profiles for all members
+  const memberIds = memberData?.map(m => m.user_id) || [];
+  const { data: profiles } = await supabaseClient
+    .from('profiles')
+    .select('id, display_name, email')
+    .in('id', memberIds);
+
+  // Combine members with their profiles
+  const members = memberData?.map(m => {
+    const profile = profiles?.find(p => p.id === m.user_id);
+    return {
+      user_id: m.user_id,
+      display_name: profile?.display_name || profile?.email?.split('@')[0] || 'Unknown',
+      email: profile?.email,
+      paid_buyin: m.paid_buyin
+    };
+  }) || [];
+
+  // Get actual results for scoring
+  const { data: results } = await supabaseClient
+    .from('actual_results')
+    .select('*');
+
   // Calculate scores for leaderboard
   const leaderboard = [];
   for (const member of members || []) {
-    const { data: picks } = await supabaseClient
-      .from('picks')
-      .select('*')
-      .eq('user_id', member.user_id);
-
-    // Get actual results for scoring
-    const { data: results } = await supabaseClient
-      .from('actual_results')
-      .select('*');
-
     let score = 0;
-    if (results && picks) {
-      picks.forEach(pick => {
-        const match = results.find(r =>
-          r.conference === pick.conference &&
-          r.round === pick.round &&
-          r.team_id === pick.team_id
-        );
-        if (match) {
-          switch (pick.round) {
-            case 1: score += group.points_r1; break;
-            case 2: score += group.points_r2; break;
-            case 3: score += group.points_r3; break;
-            case 4: score += group.points_sb; break;
+    let hasBracket = false;
+
+    // Check bracket status using SECURITY DEFINER function (bypasses RLS)
+    const { data: hasPicksResult } = await supabaseClient
+      .rpc('get_user_bracket_status', { check_user_id: member.user_id });
+
+    hasBracket = hasPicksResult === true;
+
+    // For scoring, fetch picks if playoffs are locked OR if it's the current user
+    if (state.playoffsLocked || (state.user && member.user_id === state.user.id)) {
+      const { data: picks } = await supabaseClient
+        .from('picks')
+        .select('*')
+        .eq('user_id', member.user_id);
+
+      if (results && picks) {
+        picks.forEach(pick => {
+          const match = results.find(r =>
+            r.conference === pick.conference &&
+            r.round === pick.round &&
+            r.team_id === pick.team_id
+          );
+          if (match) {
+            switch (pick.round) {
+              case 1: score += group.points_r1; break;
+              case 2: score += group.points_r2; break;
+              case 3: score += group.points_r3; break;
+              case 4: score += group.points_sb; break;
+            }
           }
-        }
-      });
+        });
+      }
     }
 
     leaderboard.push({
-      displayName: member.profiles?.display_name || member.profiles?.email?.split('@')[0] || 'Unknown',
-      hasBracket: (picks?.length || 0) > 0,
-      score
+      userId: member.user_id,
+      displayName: member.display_name,
+      hasBracket,
+      score,
+      paidBuyin: member.paid_buyin
     });
   }
 
   leaderboard.sort((a, b) => b.score - a.score);
   leaderboard.forEach((entry, i) => entry.rank = i + 1);
+
+  // Find leader among buy-in participants
+  const buyinLeaderboard = leaderboard.filter(e => e.paidBuyin);
+  buyinLeaderboard.forEach((entry, i) => entry.buyinRank = i + 1);
+
+  // Check if current user is a member
+  const isMember = state.user && members.some(m => m.user_id === state.user.id);
+  const currentUserMember = members.find(m => m.user_id === state.user?.id);
+
+  // Determine buy-in leader
+  const buyinLeader = buyinLeaderboard.length > 0 ? buyinLeaderboard[0] : null;
 
   const content = document.getElementById('groupDetailContent');
   content.innerHTML = `
@@ -955,21 +1205,55 @@ async function openGroupDetail(groupId) {
     <div class="group-meta" style="margin-bottom: 1rem;">
       <span>${members?.length || 0} members</span>
       <span>${group.is_public ? 'Public' : 'Private'}</span>
-      ${group.buyin_type !== 'none' ? `<span>$${group.buyin_price} buy-in</span>` : ''}
+      ${group.buyin_type !== 'none' ? `<span>$${group.buyin_price} buy-in (${group.buyin_type})</span>` : ''}
     </div>
+
+    ${!isMember ? `
+      <div style="margin-bottom: 1rem;">
+        ${state.user ? (
+          group.buyin_type === 'optional' ? `
+            <button class="btn btn-secondary" onclick="joinGroupFromDetail('${group.id}', false)">Join (No Buy-in)</button>
+            <button class="btn btn-primary" onclick="joinGroupFromDetail('${group.id}', true)">Join with $${group.buyin_price} Buy-in</button>
+          ` : `
+            <button class="btn btn-primary" onclick="joinGroupFromDetail('${group.id}', ${group.buyin_type === 'required'})">Join Group</button>
+          `
+        ) : `
+          <button class="btn btn-primary" onclick="closeModal('groupDetailModal'); openModal('loginModal');">Sign in to Join</button>
+        `}
+      </div>
+    ` : ''}
+
+    ${isMember && group.buyin_type === 'optional' && !state.playoffsLocked ? `
+      <div style="margin-bottom: 1rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 8px;">
+        <strong>Your Buy-in Status:</strong> ${currentUserMember?.paid_buyin ? 'Participating' : 'Not participating'}
+        <button class="btn btn-secondary" style="margin-left: 1rem; padding: 0.25rem 0.75rem;"
+                onclick="toggleBuyinStatus('${group.id}', ${!currentUserMember?.paid_buyin})">
+          ${currentUserMember?.paid_buyin ? 'Opt Out' : 'Opt In ($' + group.buyin_price + ')'}
+        </button>
+        ${group.payment_link ? `<a href="${group.payment_link}" target="_blank" style="margin-left: 0.5rem;">Payment Link</a>` : ''}
+      </div>
+    ` : ''}
 
     <div style="margin-bottom: 1rem;">
       <strong>Scoring:</strong> Wild Card: ${group.points_r1} | Divisional: ${group.points_r2} | Conference: ${group.points_r3} | Super Bowl: ${group.points_sb}
     </div>
 
-    ${!state.playoffsLocked ? `
+    ${!state.playoffsLocked && isMember ? `
       <div style="margin-bottom: 1rem;">
         <strong>Invite Link:</strong>
         <input type="text" value="${CONFIG.SITE_URL}?join=${group.id}" readonly style="width: 100%;" onclick="this.select()">
       </div>
     ` : ''}
 
+    ${group.buyin_type !== 'none' && buyinLeader ? `
+      <div style="margin-bottom: 1rem; padding: 0.75rem; background: linear-gradient(135deg, #ffd700 0%, #ffed4a 100%); border-radius: 8px; color: #333;">
+        <strong>Prize Leader:</strong> ${buyinLeader.displayName} (${buyinLeader.score} pts)
+        <span style="font-size: 0.85rem; opacity: 0.8;"> - ${buyinLeaderboard.length} participant${buyinLeaderboard.length !== 1 ? 's' : ''} in prize pool</span>
+      </div>
+    ` : ''}
+
     <h3 style="margin-top: 1.5rem;">Leaderboard</h3>
+    ${state.playoffsLocked ? '<p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Click a player to view their bracket</p>' : ''}
     <div class="leaderboard">
       <div class="leaderboard-row header">
         <div>Rank</div>
@@ -977,11 +1261,16 @@ async function openGroupDetail(groupId) {
         <div>Score</div>
       </div>
       ${leaderboard.map((entry, i) => `
-        <div class="leaderboard-row">
+        <div class="leaderboard-row ${entry.paidBuyin ? 'buyin-participant' : ''} ${state.playoffsLocked && entry.hasBracket ? 'clickable' : ''}"
+             ${state.playoffsLocked && entry.hasBracket ? `onclick="viewUserBracket('${entry.userId}', '${entry.displayName.replace(/'/g, "\\'")}', '${group.id}')"` : ''}
+             ${state.playoffsLocked && entry.hasBracket ? 'style="cursor: pointer;"' : ''}>
           <div class="leaderboard-rank ${i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : ''}">${entry.rank}</div>
           <div class="leaderboard-name">
             ${entry.displayName}
-            ${!entry.hasBracket ? '<span style="color: var(--warning); font-size: 0.75rem;">(no bracket)</span>' : ''}
+            ${entry.paidBuyin && group.buyin_type !== 'none' ? '<span style="color: #ffd700; font-size: 0.75rem; margin-left: 0.25rem;" title="In prize pool">$</span>' : ''}
+            ${entry.paidBuyin && entry.buyinRank === 1 && group.buyin_type !== 'none' ? '<span style="font-size: 0.75rem; margin-left: 0.25rem;">👑</span>' : ''}
+            ${!entry.hasBracket ? '<span style="color: var(--warning); font-size: 0.75rem; margin-left: 0.25rem;">(no bracket)</span>' : ''}
+            ${state.playoffsLocked && entry.hasBracket ? '<span style="font-size: 0.75rem; margin-left: 0.25rem;">👁</span>' : ''}
           </div>
           <div class="leaderboard-score">${entry.score}</div>
         </div>
@@ -990,6 +1279,261 @@ async function openGroupDetail(groupId) {
   `;
 
   openModal('groupDetailModal');
+}
+
+async function viewUserBracket(userId, displayName, groupId) {
+  // Use SECURITY DEFINER function to fetch picks (bypasses RLS)
+  const { data: picks, error } = await supabaseClient
+    .rpc('get_user_picks', { target_user_id: userId });
+
+  if (error) {
+    showToast('Failed to load bracket: ' + error.message, 'error');
+    return;
+  }
+
+  // Create a helper to get pick for a specific slot
+  const getPick = (conference, round, game) => {
+    return picks?.find(p => p.conference === conference && p.round === round && p.game === game);
+  };
+
+  // Build team slot HTML with result status (uses global helper functions)
+  const buildTeamSlot = (conference, round, game) => {
+    const pick = getPick(conference, round, game);
+    if (!pick) return '<div class="view-team-slot empty">-</div>';
+
+    const team = state.teams[pick.team_id];
+
+    // Use the same logic as main bracket: getPickResult handles all the elimination checks
+    const result = getPickResult(conference, round, game, pick.team_id);
+    let statusClass = result || ''; // null means pending (no class)
+
+    return `
+      <div class="view-team-slot ${statusClass}">
+        <img src="${team?.logo || ''}" alt="" class="view-team-logo" onerror="this.style.display='none'">
+        <span class="view-team-name">${team?.abbreviation || pick.team_id}</span>
+        ${statusClass === 'correct' ? '<span class="status-icon">✓</span>' : ''}
+        ${statusClass === 'incorrect' ? '<span class="status-icon">✗</span>' : ''}
+      </div>
+    `;
+  };
+
+  const content = document.getElementById('groupDetailContent');
+  content.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+      <button class="btn btn-secondary" onclick="openGroupDetail('${groupId}')" style="padding: 0.25rem 0.75rem;">&larr; Back</button>
+      <h2 style="margin: 0;">${displayName}'s Bracket</h2>
+    </div>
+
+    <div class="view-bracket-container">
+      <!-- NFC Side (Left) - Wild Card on far left, progressing toward center -->
+      <div class="view-conference nfc">
+        <h3 class="view-conf-title">NFC</h3>
+        <div class="view-bracket-rounds">
+          <div class="view-round">
+            <div class="view-round-title">Wild Card</div>
+            <div class="view-matchup">${buildTeamSlot('NFC', 1, 1)}</div>
+            <div class="view-matchup">${buildTeamSlot('NFC', 1, 2)}</div>
+            <div class="view-matchup">${buildTeamSlot('NFC', 1, 3)}</div>
+          </div>
+          <div class="view-round">
+            <div class="view-round-title">Divisional</div>
+            <div class="view-matchup">${buildTeamSlot('NFC', 2, 1)}</div>
+            <div class="view-matchup">${buildTeamSlot('NFC', 2, 2)}</div>
+          </div>
+          <div class="view-round">
+            <div class="view-round-title">NFC Champ</div>
+            <div class="view-matchup">${buildTeamSlot('NFC', 3, 1)}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Super Bowl (Center) -->
+      <div class="view-super-bowl">
+        <h3 class="view-conf-title">Super Bowl</h3>
+        <div class="view-sb-matchup">
+          ${buildTeamSlot('SB', 4, 1)}
+        </div>
+        <div class="view-champion-label">Champion</div>
+      </div>
+
+      <!-- AFC Side (Right) - AFC Champ near center, Wild Card on far right -->
+      <div class="view-conference afc">
+        <h3 class="view-conf-title">AFC</h3>
+        <div class="view-bracket-rounds">
+          <div class="view-round">
+            <div class="view-round-title">AFC Champ</div>
+            <div class="view-matchup">${buildTeamSlot('AFC', 3, 1)}</div>
+          </div>
+          <div class="view-round">
+            <div class="view-round-title">Divisional</div>
+            <div class="view-matchup">${buildTeamSlot('AFC', 2, 1)}</div>
+            <div class="view-matchup">${buildTeamSlot('AFC', 2, 2)}</div>
+          </div>
+          <div class="view-round">
+            <div class="view-round-title">Wild Card</div>
+            <div class="view-matchup">${buildTeamSlot('AFC', 1, 1)}</div>
+            <div class="view-matchup">${buildTeamSlot('AFC', 1, 2)}</div>
+            <div class="view-matchup">${buildTeamSlot('AFC', 1, 3)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <style>
+      #groupDetailModal .modal-content {
+        max-width: 900px;
+        width: 95vw;
+      }
+      .view-bracket-container {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        overflow-x: auto;
+        padding: 1rem 0;
+      }
+      .view-conference {
+        flex: 0 0 auto;
+      }
+      .view-conf-title {
+        text-align: center;
+        font-size: 1rem;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid var(--border-color);
+      }
+      .view-bracket-rounds {
+        display: flex;
+        gap: 1rem;
+      }
+      .view-round {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        min-width: 90px;
+      }
+      .view-round-title {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+        text-align: center;
+        margin-bottom: 0.25rem;
+        white-space: nowrap;
+      }
+      .view-matchup {
+        display: flex;
+        justify-content: center;
+      }
+      .view-team-slot {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--bg-secondary);
+        border-radius: 6px;
+        font-size: 0.85rem;
+        min-width: 85px;
+        border: 2px solid transparent;
+      }
+      .view-team-slot.empty {
+        color: var(--text-secondary);
+        justify-content: center;
+      }
+      .view-team-slot.correct {
+        background: rgba(34, 197, 94, 0.2);
+        border-color: rgba(34, 197, 94, 0.6);
+      }
+      .view-team-slot.incorrect {
+        background: rgba(239, 68, 68, 0.2);
+        border-color: rgba(239, 68, 68, 0.6);
+      }
+      .view-team-logo {
+        width: 20px;
+        height: 20px;
+        object-fit: contain;
+      }
+      .view-team-name {
+        font-weight: 500;
+      }
+      .status-icon {
+        margin-left: auto;
+        font-weight: bold;
+      }
+      .view-team-slot.correct .status-icon { color: #22c55e; }
+      .view-team-slot.incorrect .status-icon { color: #ef4444; }
+      .view-super-bowl {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-width: 120px;
+        padding: 1rem;
+        background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+        border-radius: 8px;
+        border: 2px solid var(--primary);
+      }
+      .view-sb-matchup {
+        margin: 1rem 0;
+      }
+      .view-sb-matchup .view-team-slot {
+        font-size: 0.9rem;
+        padding: 0.5rem 0.75rem;
+        min-width: 90px;
+      }
+      .view-champion-label {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+      }
+      @media (max-width: 700px) {
+        #groupDetailModal .modal-content {
+          max-width: 100%;
+        }
+        .view-bracket-container {
+          flex-direction: column;
+          align-items: center;
+        }
+        .view-conference, .view-super-bowl {
+          width: 100%;
+          max-width: 350px;
+        }
+        .view-bracket-rounds {
+          justify-content: center;
+        }
+      }
+    </style>
+  `;
+}
+
+async function joinGroupFromDetail(groupId, paidBuyin = false) {
+  const result = await joinGroup(groupId, paidBuyin);
+  if (result.success) {
+    closeModal('groupDetailModal');
+    // Reopen to refresh the view
+    await openGroupDetail(groupId);
+  } else {
+    showToast(result.error, 'error');
+  }
+}
+
+async function toggleBuyinStatus(groupId, newStatus) {
+  if (!state.user) return;
+
+  const { error } = await supabaseClient
+    .from('group_members')
+    .update({ paid_buyin: newStatus })
+    .eq('group_id', groupId)
+    .eq('user_id', state.user.id);
+
+  if (error) {
+    showToast('Failed to update buy-in status: ' + error.message, 'error');
+    return;
+  }
+
+  showToast(newStatus ? 'Opted into prize pool!' : 'Opted out of prize pool', 'success');
+  // Refresh the group detail view
+  await openGroupDetail(groupId);
 }
 
 function renderGroups() {
@@ -1276,4 +1820,158 @@ function showLoading(show) {
 window.openModal = openModal;
 window.closeModal = closeModal;
 window.openGroupDetail = openGroupDetail;
+window.joinGroupFromDetail = joinGroupFromDetail;
+window.toggleBuyinStatus = toggleBuyinStatus;
+window.viewUserBracket = viewUserBracket;
 window.populateProfile = populateProfile;
+
+// Debug functions - call from browser console
+window.debugLockBrackets = async function(locked = true) {
+  const { error } = await supabaseClient
+    .from('config')
+    .update({ value: locked ? 'true' : 'false' })
+    .eq('key', 'playoffs_locked');
+
+  if (error) {
+    console.error('Failed to update lock status:', error);
+    console.log('You may need to run this SQL instead:');
+    console.log(`UPDATE config SET value = '${locked}' WHERE key = 'playoffs_locked';`);
+    return;
+  }
+
+  state.playoffsLocked = locked;
+  updateLockStatus();
+  renderBracket();
+  console.log(`Brackets ${locked ? 'LOCKED' : 'UNLOCKED'}`);
+};
+
+window.debugUnlockBrackets = function() {
+  return window.debugLockBrackets(false);
+};
+
+window.debugStatus = function() {
+  console.log('Current state:', {
+    playoffsLocked: state.playoffsLocked,
+    user: state.user?.email,
+    picksCount: state.picks.length,
+    groupsCount: state.groups.length
+  });
+};
+
+// Set the winner of a game for scoring
+// Usage: debugSetWinner('AFC', 1, 1, '12') - sets AFC Wild Card Game 1 winner to team ID 12
+window.debugSetWinner = async function(conference, round, game, teamId) {
+  // Validate inputs
+  if (!['AFC', 'NFC', 'SB'].includes(conference)) {
+    console.error('Conference must be AFC, NFC, or SB');
+    return;
+  }
+  if (round < 1 || round > 4) {
+    console.error('Round must be 1-4 (1=Wild Card, 2=Divisional, 3=Conference, 4=Super Bowl)');
+    return;
+  }
+  if (game < 1 || game > 3) {
+    console.error('Game must be 1-3');
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from('actual_results')
+    .upsert({
+      conference,
+      round,
+      game,
+      team_id: teamId
+    }, { onConflict: 'conference,round,game' });
+
+  if (error) {
+    console.error('Failed to set winner:', error);
+    console.log('You may need to run this SQL instead:');
+    console.log(`INSERT INTO actual_results (conference, round, game, team_id) VALUES ('${conference}', ${round}, ${game}, '${teamId}') ON CONFLICT (conference, round, game) DO UPDATE SET team_id = '${teamId}';`);
+    return;
+  }
+
+  console.log(`Set winner: ${conference} Round ${round} Game ${game} = Team ${teamId}`);
+
+  // Show team name if we have it
+  const team = state.teams[teamId];
+  if (team) {
+    console.log(`Winner: ${team.name}`);
+  }
+
+  // Refresh the UI to show correct/incorrect picks
+  await loadActualResults();
+};
+
+// Clear a game result
+window.debugClearWinner = async function(conference, round, game) {
+  const { error } = await supabaseClient
+    .from('actual_results')
+    .delete()
+    .eq('conference', conference)
+    .eq('round', round)
+    .eq('game', game);
+
+  if (error) {
+    console.error('Failed to clear winner:', error);
+    return;
+  }
+
+  console.log(`Cleared winner for ${conference} Round ${round} Game ${game}`);
+
+  // Refresh the UI
+  await loadActualResults();
+};
+
+// Show all current results
+window.debugShowResults = async function() {
+  const { data, error } = await supabaseClient
+    .from('actual_results')
+    .select('*')
+    .order('conference')
+    .order('round')
+    .order('game');
+
+  if (error) {
+    console.error('Failed to fetch results:', error);
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    console.log('No results set yet');
+    return;
+  }
+
+  console.log('Current Results:');
+  const roundNames = { 1: 'Wild Card', 2: 'Divisional', 3: 'Conference', 4: 'Super Bowl' };
+  data.forEach(r => {
+    const team = state.teams[r.team_id];
+    console.log(`  ${r.conference} ${roundNames[r.round]} Game ${r.game}: ${team?.name || r.team_id}`);
+  });
+};
+
+// List all teams with IDs for reference
+window.debugListTeams = function() {
+  console.log('Teams by ID:');
+  Object.entries(state.teams).forEach(([id, team]) => {
+    console.log(`  ${id}: ${team.name} (${team.abbreviation})`);
+  });
+};
+
+// Clear all game results
+window.debugClearAllWinners = async function() {
+  const { error } = await supabaseClient
+    .from('actual_results')
+    .delete()
+    .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all rows
+
+  if (error) {
+    console.error('Failed to clear results:', error);
+    return;
+  }
+
+  console.log('All results cleared');
+
+  // Refresh the UI
+  await loadActualResults();
+};
