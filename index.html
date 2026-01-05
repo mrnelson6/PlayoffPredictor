@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlayoffPredictor - NFL Playoff Bracket Challenge</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">
+        <span class="logo-icon">🏈</span>
+        <span class="logo-text">PlayoffPredictor</span>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn" id="statsBtn">Stats</button>
+        <div class="auth-section" id="authSection">
+          <!-- Populated by JS based on auth state -->
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main">
+    <!-- Status Banner -->
+    <div class="status-banner" id="statusBanner">
+      <!-- Shows bracket status, lock warnings, etc. -->
+    </div>
+
+    <!-- Bracket Section -->
+    <section class="bracket-section">
+      <h2 class="section-title">2026 NFL Playoff Bracket</h2>
+      <div class="bracket-container" id="bracketContainer">
+        <!-- AFC Side -->
+        <div class="conference afc">
+          <h3 class="conference-title">AFC</h3>
+          <div class="bracket-rounds">
+            <!-- Wild Card -->
+            <div class="round wild-card">
+              <h4 class="round-title">Wild Card</h4>
+              <div class="matchup" data-conference="AFC" data-round="1" data-game="1">
+                <div class="team-slot" data-seed="2" data-position="top"></div>
+                <div class="team-slot" data-seed="7" data-position="bottom"></div>
+              </div>
+              <div class="matchup" data-conference="AFC" data-round="1" data-game="2">
+                <div class="team-slot" data-seed="3" data-position="top"></div>
+                <div class="team-slot" data-seed="6" data-position="bottom"></div>
+              </div>
+              <div class="matchup" data-conference="AFC" data-round="1" data-game="3">
+                <div class="team-slot" data-seed="4" data-position="top"></div>
+                <div class="team-slot" data-seed="5" data-position="bottom"></div>
+              </div>
+            </div>
+
+            <!-- Divisional -->
+            <div class="round divisional">
+              <h4 class="round-title">Divisional</h4>
+              <div class="matchup" data-conference="AFC" data-round="2" data-game="1">
+                <div class="team-slot" data-seed="1" data-position="top"></div>
+                <div class="team-slot" data-from="lowest" data-position="bottom"></div>
+              </div>
+              <div class="matchup" data-conference="AFC" data-round="2" data-game="2">
+                <div class="team-slot" data-from="middle-high" data-position="top"></div>
+                <div class="team-slot" data-from="middle-low" data-position="bottom"></div>
+              </div>
+            </div>
+
+            <!-- Conference Championship -->
+            <div class="round conference-champ">
+              <h4 class="round-title">AFC Championship</h4>
+              <div class="matchup" data-conference="AFC" data-round="3" data-game="1">
+                <div class="team-slot" data-from="div-1" data-position="top"></div>
+                <div class="team-slot" data-from="div-2" data-position="bottom"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Super Bowl -->
+        <div class="super-bowl">
+          <h3 class="super-bowl-title">Super Bowl</h3>
+          <div class="matchup super-bowl-matchup" data-conference="SB" data-round="4" data-game="1">
+            <div class="team-slot" data-from="afc-champ" data-position="top"></div>
+            <div class="vs-badge">VS</div>
+            <div class="team-slot" data-from="nfc-champ" data-position="bottom"></div>
+          </div>
+          <div class="champion-slot" id="championSlot">
+            <span class="champion-label">Champion</span>
+            <div class="team-slot champion" data-from="sb-winner"></div>
+          </div>
+        </div>
+
+        <!-- NFC Side -->
+        <div class="conference nfc">
+          <h3 class="conference-title">NFC</h3>
+          <div class="bracket-rounds">
+            <!-- Conference Championship -->
+            <div class="round conference-champ">
+              <h4 class="round-title">NFC Championship</h4>
+              <div class="matchup" data-conference="NFC" data-round="3" data-game="1">
+                <div class="team-slot" data-from="div-1" data-position="top"></div>
+                <div class="team-slot" data-from="div-2" data-position="bottom"></div>
+              </div>
+            </div>
+
+            <!-- Divisional -->
+            <div class="round divisional">
+              <h4 class="round-title">Divisional</h4>
+              <div class="matchup" data-conference="NFC" data-round="2" data-game="1">
+                <div class="team-slot" data-from="middle-high" data-position="top"></div>
+                <div class="team-slot" data-from="middle-low" data-position="bottom"></div>
+              </div>
+              <div class="matchup" data-conference="NFC" data-round="2" data-game="2">
+                <div class="team-slot" data-seed="1" data-position="top"></div>
+                <div class="team-slot" data-from="lowest" data-position="bottom"></div>
+              </div>
+            </div>
+
+            <!-- Wild Card -->
+            <div class="round wild-card">
+              <h4 class="round-title">Wild Card</h4>
+              <div class="matchup" data-conference="NFC" data-round="1" data-game="1">
+                <div class="team-slot" data-seed="4" data-position="top"></div>
+                <div class="team-slot" data-seed="5" data-position="bottom"></div>
+              </div>
+              <div class="matchup" data-conference="NFC" data-round="1" data-game="2">
+                <div class="team-slot" data-seed="3" data-position="top"></div>
+                <div class="team-slot" data-seed="6" data-position="bottom"></div>
+              </div>
+              <div class="matchup" data-conference="NFC" data-round="1" data-game="3">
+                <div class="team-slot" data-seed="2" data-position="top"></div>
+                <div class="team-slot" data-seed="7" data-position="bottom"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bracket Actions -->
+      <div class="bracket-actions" id="bracketActions">
+        <button class="btn btn-secondary" id="resetPicksBtn">Reset Picks</button>
+        <button class="btn btn-primary" id="submitPicksBtn">Submit Bracket</button>
+      </div>
+    </section>
+
+    <!-- Groups Section -->
+    <section class="groups-section" id="groupsSection">
+      <div class="groups-header">
+        <h2 class="section-title">Groups</h2>
+        <button class="btn btn-primary" id="createGroupBtn">Create Group</button>
+      </div>
+      <div class="groups-tabs">
+        <button class="tab-btn active" data-tab="my-groups">My Groups</button>
+        <button class="tab-btn" data-tab="public-groups">Public Groups</button>
+      </div>
+      <div class="groups-list" id="groupsList">
+        <!-- Populated by JS -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Modals -->
+
+  <!-- Login Modal -->
+  <div class="modal" id="loginModal">
+    <div class="modal-content">
+      <button class="modal-close" data-close>&times;</button>
+      <h2>Sign In</h2>
+      <p>Enter your email and we'll send you a magic link to sign in.</p>
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" required placeholder="you@example.com">
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Send Login Link</button>
+      </form>
+      <div class="form-message" id="loginMessage"></div>
+    </div>
+  </div>
+
+  <!-- Create Group Modal -->
+  <div class="modal" id="createGroupModal">
+    <div class="modal-content modal-large">
+      <button class="modal-close" data-close>&times;</button>
+      <h2>Create a Group</h2>
+      <form id="createGroupForm">
+        <div class="form-group">
+          <label for="groupName">Group Name *</label>
+          <input type="text" id="groupName" required maxlength="50" placeholder="My Playoff Pool">
+        </div>
+
+        <div class="form-group">
+          <label>Visibility</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="isPublic" value="false" checked>
+              <span>Private (invite only)</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="isPublic" value="true">
+              <span>Public (anyone can join)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Buy-in</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="buyinType" value="none" checked>
+              <span>None</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="buyinType" value="optional">
+              <span>Optional</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="buyinType" value="required">
+              <span>Required</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group buyin-details" id="buyinDetails" style="display: none;">
+          <label for="buyinPrice">Buy-in Amount ($)</label>
+          <input type="number" id="buyinPrice" min="0" step="0.01" placeholder="20">
+          <label for="paymentLink">Payment Link (Venmo, PayPal, etc.)</label>
+          <input type="url" id="paymentLink" placeholder="https://venmo.com/yourname">
+        </div>
+
+        <div class="form-group">
+          <label>Point Values</label>
+          <div class="points-grid">
+            <div>
+              <label for="pointsR1">Wild Card</label>
+              <input type="number" id="pointsR1" value="2" min="0">
+            </div>
+            <div>
+              <label for="pointsR2">Divisional</label>
+              <input type="number" id="pointsR2" value="4" min="0">
+            </div>
+            <div>
+              <label for="pointsR3">Conference</label>
+              <input type="number" id="pointsR3" value="6" min="0">
+            </div>
+            <div>
+              <label for="pointsSB">Super Bowl</label>
+              <input type="number" id="pointsSB" value="8" min="0">
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full">Create Group</button>
+      </form>
+      <div class="form-message" id="createGroupMessage"></div>
+    </div>
+  </div>
+
+  <!-- Join Group Modal -->
+  <div class="modal" id="joinGroupModal">
+    <div class="modal-content">
+      <button class="modal-close" data-close>&times;</button>
+      <h2>Join Group</h2>
+      <div id="joinGroupDetails">
+        <!-- Populated by JS -->
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-close>Cancel</button>
+        <button class="btn btn-primary" id="confirmJoinBtn">Join Group</button>
+      </div>
+      <div class="form-message" id="joinGroupMessage"></div>
+    </div>
+  </div>
+
+  <!-- Group Detail Modal -->
+  <div class="modal" id="groupDetailModal">
+    <div class="modal-content modal-large">
+      <button class="modal-close" data-close>&times;</button>
+      <div id="groupDetailContent">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats Modal -->
+  <div class="modal" id="statsModal">
+    <div class="modal-content modal-large">
+      <button class="modal-close" data-close>&times;</button>
+      <h2>Aggregate Predictions</h2>
+      <p>See who everyone is picking to win</p>
+      <div id="statsContent">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Profile Modal -->
+  <div class="modal" id="profileModal">
+    <div class="modal-content">
+      <button class="modal-close" data-close>&times;</button>
+      <h2>Profile</h2>
+      <form id="profileForm">
+        <div class="form-group">
+          <label for="displayName">Display Name</label>
+          <input type="text" id="displayName" required minlength="2" maxlength="30">
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <p class="form-static" id="profileEmail"></p>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Save Changes</button>
+      </form>
+      <div class="form-message" id="profileMessage"></div>
+      <hr>
+      <button class="btn btn-secondary btn-full" id="logoutBtn">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
