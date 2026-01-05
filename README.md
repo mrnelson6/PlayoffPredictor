@@ -5,7 +5,7 @@ NFL Playoff bracket prediction website. Users create accounts, make bracket pick
 ## Features
 
 - **Bracket Predictions**: Pick winners for each playoff round
-- **Email Magic Link Auth**: Passwordless authentication
+- **Email Magic Link Auth**: Passwordless authentication via Supabase
 - **Groups**: Create public/private groups with custom scoring
 - **Leaderboards**: Track scores against friends
 - **Aggregate Stats**: See who everyone is picking
@@ -13,82 +13,67 @@ NFL Playoff bracket prediction website. Users create accounts, make bracket pick
 ## Tech Stack
 
 - **Frontend**: HTML, CSS, JavaScript (hosted on GitHub Pages)
-- **Backend**: Google Apps Script
-- **Database**: Google Sheets
+- **Backend**: Supabase (PostgreSQL + Auth + Row Level Security)
 - **NFL Data**: ESPN Public API
 
 ---
 
 ## Setup Instructions
 
-### Step 1: Create Google Sheet
+### Step 1: Create Supabase Project
 
-1. Go to [Google Sheets](https://sheets.google.com) and create a new spreadsheet
-2. Name it "PlayoffPredictor"
-3. The sheets will be auto-created when you run the initialization function
+1. Go to [Supabase](https://supabase.com) and sign in/create an account
+2. Click **New Project**
+3. Fill in:
+   - Name: `PlayoffPredictor`
+   - Database Password: (generate a strong password and save it)
+   - Region: Choose closest to your users
+4. Click **Create new project** and wait for it to be ready
 
-### Step 2: Deploy Google Apps Script
+### Step 2: Run Database Schema
 
-1. In your Google Sheet, go to **Extensions > Apps Script**
-2. Delete any existing code in `Code.gs`
-3. Copy the contents of each file from the `backend/` folder:
-   - `Code.gs`
-   - `Auth.gs`
-   - `Picks.gs`
-   - `Groups.gs`
+1. In your Supabase project, go to **SQL Editor** (left sidebar)
+2. Click **New query**
+3. Copy and paste the entire contents of `supabase/schema.sql`
+4. Click **Run** (or press Ctrl+Enter)
+5. You should see "Success. No rows returned" - this means all tables were created
 
-4. In Apps Script, create these files (click + next to Files):
-   - Click **+** > **Script** > name it `Auth`
-   - Click **+** > **Script** > name it `Picks`
-   - Click **+** > **Script** > name it `Groups`
+### Step 3: Configure Authentication
 
-5. Paste the corresponding code into each file
+1. Go to **Authentication** > **Providers**
+2. Make sure **Email** is enabled
+3. Go to **Authentication** > **URL Configuration**
+4. Set **Site URL** to your GitHub Pages URL (e.g., `https://yourusername.github.io/PlayoffPredictor`)
+5. Add your GitHub Pages URL to **Redirect URLs**
 
-6. **Initialize the sheets**:
-   - In `Code.gs`, find the `initializeAllSheets()` function
-   - Click the dropdown next to "Run" and select `initializeAllSheets`
-   - Click **Run**
-   - Authorize the app when prompted
+#### Email Templates (Optional but recommended)
 
-7. **Deploy as Web App**:
-   - Click **Deploy** > **New deployment**
-   - Click the gear icon next to "Type" and select **Web app**
-   - Set:
-     - Description: "PlayoffPredictor API"
-     - Execute as: **Me**
-     - Who has access: **Anyone**
-   - Click **Deploy**
-   - **Copy the Web App URL** (you'll need this!)
+1. Go to **Authentication** > **Email Templates**
+2. Select **Magic Link**
+3. Customize the email template to match your branding
 
-### Step 3: Configure Frontend
+### Step 4: Get API Keys
+
+1. Go to **Project Settings** (gear icon) > **API**
+2. Copy these values:
+   - **Project URL** (looks like `https://xxxxx.supabase.co`)
+   - **anon public** key (under Project API keys)
+
+### Step 5: Configure Frontend
 
 1. Open `app.js`
 2. Find the `CONFIG` object at the top
-3. Replace `'YOUR_APPS_SCRIPT_WEB_APP_URL'` with your Web App URL from Step 2
+3. Replace the placeholder values:
 
 ```javascript
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec',
+  SUPABASE_URL: 'https://your-project-id.supabase.co',
+  SUPABASE_ANON_KEY: 'your-anon-key-here',
   // ... rest of config
 };
 ```
 
-### Step 4: Update Backend Config
-
-1. In Apps Script, open `Code.gs`
-2. Update the `CONFIG.FRONTEND_URL` to your GitHub Pages URL:
-
-```javascript
-const CONFIG = {
-  FRONTEND_URL: 'https://yourusername.github.io/PlayoffPredictor',
-  // ...
-};
-```
-
-3. Click **Deploy** > **Manage deployments** > **Edit** (pencil icon)
-4. Select "New version" and click **Deploy**
-
-### Step 5: Deploy to GitHub Pages
+### Step 6: Deploy to GitHub Pages
 
 1. Create a new repository on GitHub named `PlayoffPredictor`
 2. Push your code:
@@ -108,6 +93,8 @@ git push -u origin main
 
 4. Your site will be live at `https://yourusername.github.io/PlayoffPredictor`
 
+5. **Important**: Go back to Supabase and update your **Site URL** and **Redirect URLs** with the actual GitHub Pages URL
+
 ---
 
 ## File Structure
@@ -116,15 +103,35 @@ git push -u origin main
 PlayoffPredictor/
 ├── index.html          # Main page
 ├── styles.css          # Styling
-├── app.js              # Frontend logic
-├── backend/
-│   ├── Code.gs         # Main Apps Script entry point
-│   ├── Auth.gs         # Authentication (magic links)
-│   ├── Picks.gs        # Bracket picks CRUD
-│   └── Groups.gs       # Groups management
+├── app.js              # Frontend logic (Supabase client)
+├── supabase/
+│   └── schema.sql      # Database schema (run in SQL Editor)
 ├── designdoc.md        # Original design document
 └── README.md           # This file
 ```
+
+---
+
+## Database Schema
+
+### Tables
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | User display names (extends Supabase Auth) |
+| `picks` | User bracket predictions |
+| `groups` | Competition groups |
+| `group_members` | Group membership |
+| `config` | App configuration (playoffs_locked) |
+| `actual_results` | Real game outcomes for scoring |
+
+### Row Level Security
+
+All tables have RLS enabled:
+- Users can only modify their own picks
+- Users can only see others' picks after playoffs are locked
+- Group creators can manage their groups
+- Anyone can view public groups
 
 ---
 
@@ -132,29 +139,45 @@ PlayoffPredictor/
 
 ### Lock Brackets (when playoffs start)
 
-In Apps Script, run this in the console or create an admin endpoint:
+In Supabase SQL Editor:
 
-```javascript
-function lockBrackets() {
-  lockPlayoffs('YOUR_ADMIN_KEY');
-}
+```sql
+UPDATE config SET value = 'true' WHERE key = 'playoffs_locked';
 ```
 
-Replace `YOUR_ADMIN_KEY` in `Code.gs` with a secure key.
+### Unlock Brackets
 
-### Update Actual Results
+```sql
+UPDATE config SET value = 'false' WHERE key = 'playoffs_locked';
+```
 
-To update scores after games:
+### Add Game Results
 
-```javascript
-function updateResults() {
-  const results = [
-    { conference: 'AFC', round: 1, teamId: '12' }, // KC won wild card
-    { conference: 'AFC', round: 1, teamId: '4' },  // BUF won wild card
-    // ... add all winners
-  ];
-  setActualResults('YOUR_ADMIN_KEY', results);
-}
+After each game, add the winner:
+
+```sql
+-- Example: Kansas City wins AFC Wild Card Game 1
+INSERT INTO actual_results (conference, round, game, team_id)
+VALUES ('AFC', 1, 1, '12')
+ON CONFLICT (conference, round, game) DO UPDATE SET team_id = EXCLUDED.team_id;
+```
+
+### Calculate Scores
+
+The `calculate_user_score` function is built into the schema:
+
+```sql
+-- Get a user's score with default points
+SELECT calculate_user_score('user-uuid-here');
+
+-- Get a user's score with custom points
+SELECT calculate_user_score('user-uuid-here', 2, 4, 6, 8);
+```
+
+### View Aggregate Stats
+
+```sql
+SELECT * FROM get_aggregate_stats();
 ```
 
 ---
@@ -173,29 +196,60 @@ Note: This is an unofficial API and may change without notice.
 
 ## Troubleshooting
 
-### Magic link emails going to spam
-- Ask users to check spam/junk folder
-- Add instructions in the login modal
+### Magic link emails not arriving
+- Check spam/junk folder
+- Verify email is spelled correctly
+- In Supabase, check **Authentication** > **Users** to see if signup was attempted
+- Check rate limits in Supabase (free tier: 4 emails/hour)
 
-### CORS errors
-- Make sure your Apps Script is deployed with "Anyone" access
-- Redeploy after any changes
+### "Invalid API key" errors
+- Verify `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `app.js`
+- Make sure you copied the **anon public** key (not the service role key)
 
 ### Picks not saving
 - Check browser console for errors
-- Verify Apps Script URL is correct
-- Make sure playoffs aren't locked
+- Verify user is logged in
+- Check if playoffs are locked: `SELECT * FROM config WHERE key = 'playoffs_locked';`
+
+### "Permission denied" errors
+- RLS policies may be blocking the request
+- Check that the user is authenticated
+- Verify the RLS policies are correctly set up
 
 ### Teams not loading
 - ESPN API may be temporarily unavailable
 - Fallback data will be used automatically
 
+### Auth redirects not working
+- Verify **Site URL** and **Redirect URLs** in Supabase match your actual domain
+- Include both `http://localhost` (for local dev) and your production URL
+
+---
+
+## Local Development
+
+1. Clone the repository
+2. Update `app.js` with your Supabase credentials
+3. Serve the files locally:
+
+```bash
+# Using Python
+python -m http.server 8000
+
+# Using Node.js
+npx serve
+```
+
+4. Open `http://localhost:8000`
+
+5. Add `http://localhost:8000` to your Supabase Redirect URLs for local testing
+
 ---
 
 ## Customization
 
-### Change point values (default)
-Edit in `Groups.gs` or let group creators customize:
+### Change default point values
+Edit in `supabase/schema.sql` or let group creators customize:
 - Wild Card: 2 points
 - Divisional: 4 points
 - Conference: 6 points

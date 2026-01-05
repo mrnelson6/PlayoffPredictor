@@ -917,47 +917,137 @@ hr {
    Responsive
    ============================================ */
 
+/* Tablet - Stack vertically but keep horizontal rounds */
 @media (max-width: 1024px) {
   .bracket-container {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto auto;
+    gap: var(--spacing-xl);
   }
 
   .super-bowl {
     order: -1;
+    padding: var(--spacing-lg);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-lg);
   }
 
   .conference {
     min-width: auto;
   }
 
-  .nfc .bracket-rounds {
+  /* Both conferences flow left to right on tablet */
+  .nfc .bracket-rounds,
+  .afc .bracket-rounds {
     flex-direction: row;
   }
 }
 
+/* Mobile - Complete redesign for vertical layout */
 @media (max-width: 768px) {
   .header-content {
     flex-wrap: wrap;
     gap: var(--spacing-sm);
   }
 
+  .header .logo-text {
+    font-size: 1rem;
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    text-align: center;
+  }
+
+  .bracket-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-sm);
+  }
+
+  .conference {
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+  }
+
+  .conference-title {
+    font-size: 1rem;
+    margin-bottom: var(--spacing-md);
+  }
+
   .bracket-rounds {
     flex-direction: column !important;
+    gap: var(--spacing-lg);
   }
 
   .round {
-    flex-direction: row;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .round-title {
+    font-size: 0.8rem;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: var(--bg-primary);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--spacing-xs);
   }
 
   .matchup {
-    flex: 1;
-    min-width: 140px;
+    flex: none;
+    width: 100%;
   }
 
-  .points-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .team-slot {
+    padding: var(--spacing-md);
+    min-height: 52px;
+  }
+
+  .team-logo {
+    width: 32px;
+    height: 32px;
+  }
+
+  .team-name {
+    font-size: 0.9rem;
+  }
+
+  .team-seed {
+    font-size: 0.75rem;
+  }
+
+  /* Super Bowl mobile */
+  .super-bowl {
+    order: -1;
+    background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+    border: 2px solid var(--border-color);
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+  }
+
+  .super-bowl-title {
+    font-size: 1.1rem;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .super-bowl-matchup {
+    max-width: 100%;
+  }
+
+  .champion-slot {
+    margin-top: var(--spacing-md);
+  }
+
+  .champion-slot .team-slot {
+    min-width: auto;
+    width: 100%;
+  }
+
+  /* Groups mobile */
+  .groups-section {
+    padding: var(--spacing-md);
   }
 
   .groups-header {
@@ -965,22 +1055,108 @@ hr {
     gap: var(--spacing-sm);
     align-items: stretch;
   }
+
+  .groups-header .section-title {
+    margin-bottom: 0;
+  }
+
+  .groups-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-btn {
+    white-space: nowrap;
+  }
+
+  /* Forms mobile */
+  .points-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Status banner mobile */
+  .status-banner {
+    font-size: 0.85rem;
+    text-align: center;
+  }
+
+  /* Toast mobile */
+  .toast-container {
+    left: var(--spacing-md);
+    right: var(--spacing-md);
+    bottom: var(--spacing-md);
+  }
+
+  .toast {
+    min-width: auto;
+    width: 100%;
+  }
 }
 
+/* Small mobile */
 @media (max-width: 480px) {
   .main {
-    padding: var(--spacing-md);
+    padding: var(--spacing-sm);
   }
 
   .modal-content {
     padding: var(--spacing-md);
+    margin: var(--spacing-sm);
+    max-height: calc(100vh - 1rem);
   }
 
   .bracket-actions {
     flex-direction: column;
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-primary);
+    padding: var(--spacing-md);
+    margin: 0 calc(-1 * var(--spacing-sm));
+    border-top: 1px solid var(--border-color);
   }
 
   .bracket-actions .btn {
     width: 100%;
+  }
+
+  .team-slot {
+    padding: var(--spacing-sm) var(--spacing-md);
+    min-height: 48px;
+  }
+
+  .team-logo {
+    width: 28px;
+    height: 28px;
+  }
+
+  .conference {
+    padding: var(--spacing-sm);
+  }
+
+  .round-title {
+    font-size: 0.7rem;
+  }
+
+  /* Improve tap targets */
+  .btn {
+    min-height: 44px;
+    font-size: 1rem;
+  }
+
+  .nav-btn {
+    padding: var(--spacing-sm);
+  }
+
+  .user-info {
+    padding: var(--spacing-xs);
+  }
+
+  .user-name {
+    display: none;
+  }
+
+  .user-avatar {
+    width: 36px;
+    height: 36px;
   }
 }

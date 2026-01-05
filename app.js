@@ -1,5 +1,5 @@
 /**
- * PlayoffPredictor - Main Application
+ * PlayoffPredictor - Main Application (Supabase Version)
  */
 
 // ============================================
@@ -7,9 +7,9 @@
 // ============================================
 
 const CONFIG = {
-  
-  // UPDATE THIS after deploying your Apps Script
-  API_URL: 'https://script.google.com/macros/s/AKfycbx_K7q_4naFXSieVtcXq0_Nx7OTYBavNYQ9W-9mh2l8P1SO_MFMaZ-E2yCBvEHjplMd/exec',
+  // UPDATE THESE with your Supabase project details
+  SUPABASE_URL: 'https://mvdgiqspcywbmrvlphtp.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_cUgE-KLyMycCPxAOXa8FeA_CkH6Unai',
 
   // ESPN API endpoints
   ESPN_SCOREBOARD: 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
@@ -18,10 +18,12 @@ const CONFIG = {
   // Logo URL pattern
   LOGO_URL: (abbrev) => `https://a.espncdn.com/i/teamlogos/nfl/500/${abbrev}.png`,
 
-  // Storage keys
-  STORAGE_SESSION: 'pp_session',
-  STORAGE_PICKS: 'pp_picks_draft'
+  // Frontend URL (for magic link redirects)
+  SITE_URL: window.location.origin
 };
+
+// Initialize Supabase client
+const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
 // ============================================
 // State Management
@@ -29,14 +31,14 @@ const CONFIG = {
 
 const state = {
   user: null,
-  sessionToken: null,
-  teams: {},           // teamId -> team data
-  playoffTeams: {      // conference -> seed -> team
+  profile: null,
+  teams: {},
+  playoffTeams: {
     AFC: {},
     NFC: {}
   },
-  picks: [],           // User's picks
-  savedPicks: [],      // Picks from server
+  picks: [],
+  savedPicks: [],
   groups: [],
   publicGroups: [],
   playoffsLocked: false,
@@ -48,19 +50,40 @@ const state = {
 // ============================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Check for magic link token in URL
-  const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get('token');
-  const joinGroupId = urlParams.get('join');
+  // Check for auth callback (magic link)
+  await handleAuthCallback();
 
-  if (token) {
-    await handleMagicLinkToken(token);
-    // Clean URL
-    window.history.replaceState({}, document.title, window.location.pathname);
-  } else {
-    // Try to restore session
-    await restoreSession();
+  // Get current session
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    state.user = session.user;
+    await loadProfile();
   }
+
+  // Listen for auth changes
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      state.user = session.user;
+      await loadProfile();
+      await loadUserPicks();
+      await loadUserGroups();
+      updateAuthUI();
+      renderBracket();
+      showToast('Welcome back, ' + (state.profile?.display_name || state.user.email) + '!', 'success');
+    } else if (event === 'SIGNED_OUT') {
+      state.user = null;
+      state.profile = null;
+      state.picks = [];
+      state.savedPicks = [];
+      state.groups = [];
+      updateAuthUI();
+      renderBracket();
+    }
+  });
+
+  // Check for group join link
+  const urlParams = new URLSearchParams(window.location.search);
+  const joinGroupId = urlParams.get('join');
 
   // Load NFL data
   await loadNFLData();
@@ -74,6 +97,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Handle group join link
   if (joinGroupId) {
     await handleJoinLink(joinGroupId);
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 
   // Render bracket
@@ -87,29 +111,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Load public groups
   await loadPublicGroups();
+
+  updateAuthUI();
 });
 
-// ============================================
-// API Calls
-// ============================================
+// Handle magic link callback
+async function handleAuthCallback() {
+  const hashParams = new URLSearchParams(window.location.hash.substring(1));
+  const accessToken = hashParams.get('access_token');
 
-async function apiCall(action, params = {}) {
-  const url = new URL(CONFIG.API_URL);
-  url.searchParams.set('action', action);
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
-      url.searchParams.set(key, typeof value === 'object' ? JSON.stringify(value) : value);
-    }
-  });
-
-  try {
-    const response = await fetch(url.toString());
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('API Error:', error);
-    return { error: error.message };
+  if (accessToken) {
+    // Clear the hash from URL
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 }
 
@@ -117,47 +130,25 @@ async function apiCall(action, params = {}) {
 // Authentication
 // ============================================
 
-async function handleMagicLinkToken(token) {
-  showLoading(true);
-  const result = await apiCall('validateToken', { token });
-  showLoading(false);
-
-  if (result.success) {
-    state.sessionToken = result.sessionToken;
-    state.user = result.user;
-    localStorage.setItem(CONFIG.STORAGE_SESSION, result.sessionToken);
-    showToast('Welcome back, ' + state.user.displayName + '!', 'success');
-    updateAuthUI();
-  } else {
-    showToast(result.error || 'Invalid login link', 'error');
-  }
-}
-
-async function restoreSession() {
-  const sessionToken = localStorage.getItem(CONFIG.STORAGE_SESSION);
-  if (!sessionToken) return;
-
-  const result = await apiCall('validateSession', { sessionToken });
-
-  if (result.valid) {
-    state.sessionToken = sessionToken;
-    state.user = result.user;
-    updateAuthUI();
-  } else {
-    localStorage.removeItem(CONFIG.STORAGE_SESSION);
-  }
-}
-
 async function sendMagicLink(email) {
-  const result = await apiCall('sendMagicLink', { email });
-  return result;
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email,
+    options: {
+      emailRedirectTo: CONFIG.SITE_URL
+    }
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { success: true, message: 'Check your email for the login link!' };
 }
 
 async function logout() {
-  await apiCall('logout', { sessionToken: state.sessionToken });
-  localStorage.removeItem(CONFIG.STORAGE_SESSION);
+  await supabase.auth.signOut();
   state.user = null;
-  state.sessionToken = null;
+  state.profile = null;
   state.picks = [];
   state.savedPicks = [];
   state.groups = [];
@@ -166,13 +157,44 @@ async function logout() {
   showToast('Signed out successfully', 'success');
 }
 
+async function loadProfile() {
+  if (!state.user) return;
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', state.user.id)
+    .single();
+
+  if (data) {
+    state.profile = data;
+  }
+}
+
+async function updateDisplayName(displayName) {
+  if (!state.user) return { error: 'Not logged in' };
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ display_name: displayName, updated_at: new Date().toISOString() })
+    .eq('id', state.user.id)
+    .select()
+    .single();
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  state.profile = data;
+  return { success: true, profile: data };
+}
+
 // ============================================
 // NFL Data
 // ============================================
 
 async function loadNFLData() {
   try {
-    // Fetch teams
     const teamsResponse = await fetch(CONFIG.ESPN_TEAMS);
     const teamsData = await teamsResponse.json();
 
@@ -187,33 +209,23 @@ async function loadNFLData() {
       };
     });
 
-    // Fetch scoreboard for playoff data
-    const scoreboardResponse = await fetch(CONFIG.ESPN_SCOREBOARD);
-    const scoreboardData = await scoreboardResponse.json();
-
-    // Parse playoff teams from scoreboard or use standings
     await loadPlayoffTeams();
-
   } catch (error) {
     console.error('Error loading NFL data:', error);
-    // Use fallback data if ESPN fails
     loadFallbackData();
   }
 }
 
 async function loadPlayoffTeams() {
-  // Try to get playoff standings
   try {
     const standingsUrl = 'https://site.api.espn.com/apis/v2/sports/football/nfl/standings';
     const response = await fetch(standingsUrl);
     const data = await response.json();
 
-    // Parse standings to get playoff seeds
     data.children?.forEach(conference => {
-      const confName = conference.abbreviation; // AFC or NFC
-
-      // Get teams sorted by playoff seed
+      const confName = conference.abbreviation;
       const teams = [];
+
       conference.standings?.entries?.forEach(entry => {
         const team = entry.team;
         const playoffSeed = entry.stats?.find(s => s.name === 'playoffSeed')?.value;
@@ -239,7 +251,6 @@ async function loadPlayoffTeams() {
 }
 
 function loadFallbackData() {
-  // Fallback: Use 2024-25 playoff teams as example
   const fallbackTeams = {
     AFC: {
       1: { id: '12', name: 'Kansas City Chiefs', abbreviation: 'KC' },
@@ -274,8 +285,13 @@ function loadFallbackData() {
 }
 
 async function checkPlayoffsLocked() {
-  const result = await apiCall('isPlayoffsLocked');
-  state.playoffsLocked = result.locked || false;
+  const { data } = await supabase
+    .from('config')
+    .select('value')
+    .eq('key', 'playoffs_locked')
+    .single();
+
+  state.playoffsLocked = data?.value === 'true';
   updateLockStatus();
 }
 
@@ -284,20 +300,28 @@ async function checkPlayoffsLocked() {
 // ============================================
 
 async function loadUserPicks() {
-  if (!state.sessionToken) return;
+  if (!state.user) return;
 
-  const result = await apiCall('getPicks', { sessionToken: state.sessionToken });
+  const { data, error } = await supabase
+    .from('picks')
+    .select('*')
+    .eq('user_id', state.user.id);
 
-  if (result.picks) {
-    state.savedPicks = result.picks;
-    state.picks = [...result.picks];
+  if (data) {
+    state.savedPicks = data.map(p => ({
+      conference: p.conference,
+      round: p.round,
+      game: p.game,
+      teamId: p.team_id
+    }));
+    state.picks = [...state.savedPicks];
     renderBracket();
     updateBracketStatus();
   }
 }
 
 async function savePicks() {
-  if (!state.sessionToken) {
+  if (!state.user) {
     openModal('loginModal');
     return;
   }
@@ -308,19 +332,36 @@ async function savePicks() {
   }
 
   showLoading(true);
-  const result = await apiCall('savePicks', {
-    sessionToken: state.sessionToken,
-    picks: state.picks
-  });
+
+  // Delete existing picks
+  await supabase
+    .from('picks')
+    .delete()
+    .eq('user_id', state.user.id);
+
+  // Insert new picks
+  const picksToInsert = state.picks.map(pick => ({
+    user_id: state.user.id,
+    conference: pick.conference,
+    round: pick.round,
+    game: pick.game,
+    team_id: pick.teamId
+  }));
+
+  const { error } = await supabase
+    .from('picks')
+    .insert(picksToInsert);
+
   showLoading(false);
 
-  if (result.success) {
-    state.savedPicks = [...state.picks];
-    showToast('Bracket saved!', 'success');
-    updateBracketStatus();
-  } else {
-    showToast(result.error || 'Failed to save', 'error');
+  if (error) {
+    showToast('Failed to save: ' + error.message, 'error');
+    return;
   }
+
+  state.savedPicks = [...state.picks];
+  showToast('Bracket saved!', 'success');
+  updateBracketStatus();
 }
 
 function resetPicks() {
@@ -329,7 +370,6 @@ function resetPicks() {
   updateBracketStatus();
 }
 
-// Get pick for a specific matchup (conference, round, game)
 function getPick(conference, round, game) {
   return state.picks.find(p =>
     p.conference === conference &&
@@ -338,51 +378,33 @@ function getPick(conference, round, game) {
   );
 }
 
-// Set a pick for a specific matchup
 function setPick(conference, round, game, teamId) {
-  // Remove existing pick for this specific matchup
   state.picks = state.picks.filter(p =>
     !(p.conference === conference && p.round === round && p.game === game)
   );
 
-  // Add new pick
   if (teamId) {
     state.picks.push({ conference, round, game, teamId });
   }
 
-  // Clear downstream picks that might be invalidated
   clearDownstreamPicks(conference, round, teamId);
-
   renderBracket();
   updateBracketStatus();
 }
 
 function clearDownstreamPicks(conference, round, newTeamId) {
-  // When a pick changes, we need to clear picks in later rounds
-  // that might have depended on a different team advancing
-
   if (round === 1) {
-    // Changing a Wild Card pick clears Divisional and beyond for this conference
     state.picks = state.picks.filter(p =>
       !(p.conference === conference && p.round >= 2)
     );
-    // Also clear Super Bowl if it involved this conference's teams
-    state.picks = state.picks.filter(p =>
-      !(p.conference === 'SB')
-    );
+    state.picks = state.picks.filter(p => !(p.conference === 'SB'));
   } else if (round === 2) {
-    // Changing a Divisional pick clears Conference Championship and Super Bowl
     state.picks = state.picks.filter(p =>
       !(p.conference === conference && p.round >= 3)
     );
-    state.picks = state.picks.filter(p =>
-      !(p.conference === 'SB')
-    );
+    state.picks = state.picks.filter(p => !(p.conference === 'SB'));
   } else if (round === 3) {
-    // Changing Conference Championship clears Super Bowl
-    state.picks = state.picks.filter(p =>
-      !(p.conference === 'SB')
-    );
+    state.picks = state.picks.filter(p => !(p.conference === 'SB'));
   }
 }
 
@@ -400,86 +422,59 @@ function renderBracket() {
 function renderConference(conference) {
   const teams = state.playoffTeams[conference];
 
-  // Round 1: Wild Card - Fixed matchups based on seeding
-  // Game 1: 2 vs 7, Game 2: 3 vs 6, Game 3: 4 vs 5
   renderMatchup(conference, 1, 1, [teams[2], teams[7]]);
   renderMatchup(conference, 1, 2, [teams[3], teams[6]]);
   renderMatchup(conference, 1, 3, [teams[4], teams[5]]);
 
-  // Round 2: Divisional - Based on Wild Card winners
-  // #1 seed plays lowest remaining seed, other two play each other
   const wcWinners = getWildCardWinners(conference);
   const divMatchups = buildDivisionalMatchups(conference, teams[1], wcWinners);
   renderMatchup(conference, 2, 1, divMatchups[0]);
   renderMatchup(conference, 2, 2, divMatchups[1]);
 
-  // Round 3: Conference Championship - Based on Divisional winners
   const divWinners = getDivisionalWinners(conference);
   renderMatchup(conference, 3, 1, divWinners);
 }
 
-// Get Wild Card winners based on user picks for each game
 function getWildCardWinners(conference) {
   const winners = [];
-
   for (let game = 1; game <= 3; game++) {
     const pick = getPick(conference, 1, game);
     if (pick) {
       const team = findTeamById(conference, pick.teamId);
-      if (team) {
-        winners.push(team);
-      }
+      if (team) winners.push(team);
     }
   }
-
   return winners;
 }
 
-// Build Divisional round matchups based on NFL rules
-// #1 seed plays lowest remaining seed, other two winners play each other
 function buildDivisionalMatchups(conference, topSeed, wcWinners) {
   if (wcWinners.length < 3) {
-    // Not all Wild Card picks made yet - show TBD
-    return [
-      [topSeed, null],
-      [null, null]
-    ];
+    return [[topSeed, null], [null, null]];
   }
 
-  // Sort winners by seed (higher seed number = lower seed)
   const sorted = [...wcWinners].sort((a, b) => b.seed - a.seed);
-
-  // Lowest seed (highest number) plays #1
   const lowestSeed = sorted[0];
-  // Other two play each other (sorted by seed for consistent display)
   const others = sorted.slice(1).sort((a, b) => a.seed - b.seed);
 
   return [
-    [topSeed, lowestSeed],      // Game 1: #1 vs lowest remaining
-    [others[0], others[1]]       // Game 2: other two winners
+    [topSeed, lowestSeed],
+    [others[0], others[1]]
   ];
 }
 
-// Get Divisional round winners based on user picks
 function getDivisionalWinners(conference) {
   const winners = [];
-
   for (let game = 1; game <= 2; game++) {
     const pick = getPick(conference, 2, game);
     if (pick) {
       const team = findTeamById(conference, pick.teamId);
-      if (team) {
-        winners.push(team);
-      }
+      if (team) winners.push(team);
     }
   }
-
   return winners;
 }
 
-// Find a team by ID within a conference
 function findTeamById(conference, teamId) {
-  // Check the specified conference first
   const teams = state.playoffTeams[conference];
   if (teams) {
     for (const seed in teams) {
@@ -489,7 +484,6 @@ function findTeamById(conference, teamId) {
     }
   }
 
-  // For Super Bowl, check both conferences
   if (conference === 'SB') {
     for (const conf of ['AFC', 'NFC']) {
       const confTeams = state.playoffTeams[conf];
@@ -505,7 +499,6 @@ function findTeamById(conference, teamId) {
 }
 
 function renderSuperBowl() {
-  // Get conference champions from user's round 3 picks
   const afcChampPick = getPick('AFC', 3, 1);
   const nfcChampPick = getPick('NFC', 3, 1);
 
@@ -515,12 +508,10 @@ function renderSuperBowl() {
   const sbMatchup = document.querySelector('.super-bowl-matchup');
   if (sbMatchup) {
     const slots = sbMatchup.querySelectorAll('.team-slot');
-    // NFC on top (left side of bracket), AFC on bottom (right side of bracket)
     renderTeamSlot(slots[0], nfcChamp, 'SB', 4, 1, true);
     renderTeamSlot(slots[1], afcChamp, 'SB', 4, 1, true);
   }
 
-  // Champion display - show who user picked to win Super Bowl
   const sbWinnerPick = getPick('SB', 4, 1);
   const championSlot = document.querySelector('.champion-slot .team-slot');
 
@@ -570,7 +561,6 @@ function renderMatchup(conference, round, game, teams) {
 }
 
 function renderTeamSlot(slot, team, conference, round, game, clickable = true, isSelected = false) {
-  // Remove old event listeners by cloning
   const newSlot = slot.cloneNode(false);
   slot.parentNode.replaceChild(newSlot, slot);
   slot = newSlot;
@@ -588,7 +578,6 @@ function renderTeamSlot(slot, team, conference, round, game, clickable = true, i
     slot.classList.add('selected');
   }
 
-  // Check locked state
   if (state.playoffsLocked || !state.user) {
     slot.classList.add('locked');
   }
@@ -601,7 +590,6 @@ function renderTeamSlot(slot, team, conference, round, game, clickable = true, i
     </div>
   `;
 
-  // Add click handler
   if (clickable && state.user && !state.playoffsLocked) {
     slot.addEventListener('click', () => handleTeamClick(team, conference, round, game));
   }
@@ -621,10 +609,8 @@ function handleTeamClick(team, conference, round, game) {
   const currentPick = getPick(conference, round, game);
 
   if (currentPick?.teamId === team.teamId) {
-    // Deselect - clicking same team again
     setPick(conference, round, game, null);
   } else {
-    // Select this team as winner
     setPick(conference, round, game, team.teamId);
   }
 }
@@ -654,7 +640,7 @@ function updateBracketStatus() {
   }
 
   const totalPicks = state.picks.length;
-  const expectedPicks = 13; // 6 WC + 4 Div + 2 Conf + 1 SB
+  const expectedPicks = 13;
 
   if (totalPicks === 0) {
     banner.className = 'status-banner visible warning';
@@ -663,7 +649,8 @@ function updateBracketStatus() {
     banner.className = 'status-banner visible warning';
     banner.innerHTML = `You have ${totalPicks}/${expectedPicks} picks. Complete your bracket and submit!`;
   } else {
-    const hasUnsaved = JSON.stringify(state.picks) !== JSON.stringify(state.savedPicks);
+    const hasUnsaved = JSON.stringify(state.picks.sort((a,b) => a.conference.localeCompare(b.conference) || a.round - b.round || a.game - b.game)) !==
+                       JSON.stringify(state.savedPicks.sort((a,b) => a.conference.localeCompare(b.conference) || a.round - b.round || a.game - b.game));
     if (hasUnsaved) {
       banner.className = 'status-banner visible warning';
       banner.innerHTML = 'You have unsaved changes. Click Submit to save your bracket!';
@@ -687,21 +674,80 @@ function updateLockStatus() {
 // ============================================
 
 async function loadUserGroups() {
-  if (!state.sessionToken) return;
+  if (!state.user) return;
 
-  const result = await apiCall('getUserGroups', { sessionToken: state.sessionToken });
+  const { data } = await supabase
+    .from('group_members')
+    .select(`
+      group_id,
+      groups (
+        id,
+        name,
+        is_public,
+        buyin_type,
+        buyin_price,
+        payment_link,
+        creator_id,
+        points_r1,
+        points_r2,
+        points_r3,
+        points_sb,
+        created_at
+      )
+    `)
+    .eq('user_id', state.user.id);
 
-  if (result.groups) {
-    state.groups = result.groups;
+  if (data) {
+    state.groups = data.map(d => ({
+      ...d.groups,
+      groupId: d.groups.id,
+      isPublic: d.groups.is_public,
+      buyinType: d.groups.buyin_type,
+      buyinPrice: d.groups.buyin_price,
+      paymentLink: d.groups.payment_link,
+      creatorId: d.groups.creator_id,
+      pointsR1: d.groups.points_r1,
+      pointsR2: d.groups.points_r2,
+      pointsR3: d.groups.points_r3,
+      pointsSB: d.groups.points_sb,
+      isCreator: d.groups.creator_id === state.user.id
+    }));
     renderGroups();
   }
 }
 
 async function loadPublicGroups() {
-  const result = await apiCall('getPublicGroups');
+  const { data } = await supabase
+    .from('groups')
+    .select('*')
+    .eq('is_public', true);
 
-  if (result.groups) {
-    state.publicGroups = result.groups;
+  if (data) {
+    // Get member counts
+    const groupIds = data.map(g => g.id);
+    const { data: memberCounts } = await supabase
+      .from('group_members')
+      .select('group_id')
+      .in('group_id', groupIds);
+
+    const countMap = {};
+    memberCounts?.forEach(m => {
+      countMap[m.group_id] = (countMap[m.group_id] || 0) + 1;
+    });
+
+    state.publicGroups = data.map(g => ({
+      ...g,
+      groupId: g.id,
+      isPublic: g.is_public,
+      buyinType: g.buyin_type,
+      buyinPrice: g.buyin_price,
+      pointsR1: g.points_r1,
+      pointsR2: g.points_r2,
+      pointsR3: g.points_r3,
+      pointsSB: g.points_sb,
+      memberCount: countMap[g.id] || 0
+    }));
+
     if (state.currentGroupTab === 'public-groups') {
       renderGroups();
     }
@@ -709,67 +755,102 @@ async function loadPublicGroups() {
 }
 
 async function createGroup(groupData) {
-  if (!state.sessionToken) {
+  if (!state.user) {
     openModal('loginModal');
     return { error: 'Please sign in first' };
   }
 
-  const result = await apiCall('createGroup', {
-    sessionToken: state.sessionToken,
-    groupData: groupData
-  });
+  const { data: group, error } = await supabase
+    .from('groups')
+    .insert({
+      name: groupData.name,
+      is_public: groupData.isPublic,
+      buyin_type: groupData.buyinType,
+      buyin_price: groupData.buyinPrice || 0,
+      payment_link: groupData.paymentLink || '',
+      creator_id: state.user.id,
+      points_r1: groupData.pointsR1 || 2,
+      points_r2: groupData.pointsR2 || 4,
+      points_r3: groupData.pointsR3 || 6,
+      points_sb: groupData.pointsSB || 8
+    })
+    .select()
+    .single();
 
-  if (result.success) {
-    await loadUserGroups();
-    showToast('Group created! Share the invite link with friends.', 'success');
-
-    // Show invite link
-    if (result.inviteLink) {
-      prompt('Share this link to invite friends:', result.inviteLink);
-    }
+  if (error) {
+    return { error: error.message };
   }
 
-  return result;
+  // Auto-join creator
+  await supabase
+    .from('group_members')
+    .insert({
+      group_id: group.id,
+      user_id: state.user.id
+    });
+
+  await loadUserGroups();
+
+  const inviteLink = `${CONFIG.SITE_URL}?join=${group.id}`;
+  showToast('Group created! Share the invite link with friends.', 'success');
+  prompt('Share this link to invite friends:', inviteLink);
+
+  return { success: true, group, inviteLink };
 }
 
 async function joinGroup(groupId) {
-  if (!state.sessionToken) {
+  if (!state.user) {
     openModal('loginModal');
     return { error: 'Please sign in first' };
   }
 
-  const result = await apiCall('joinGroup', {
-    sessionToken: state.sessionToken,
-    groupId: groupId
-  });
+  const { error } = await supabase
+    .from('group_members')
+    .insert({
+      group_id: groupId,
+      user_id: state.user.id
+    });
 
-  if (result.success) {
-    await loadUserGroups();
-    showToast(result.message, 'success');
+  if (error) {
+    if (error.code === '23505') {
+      return { error: 'Already a member of this group' };
+    }
+    return { error: error.message };
   }
 
-  return result;
+  await loadUserGroups();
+  showToast('Successfully joined the group!', 'success');
+  return { success: true };
 }
 
 async function handleJoinLink(groupId) {
-  // Get group details
-  const result = await apiCall('getGroup', { groupId });
+  const { data: group } = await supabase
+    .from('groups')
+    .select('*')
+    .eq('id', groupId)
+    .single();
 
-  if (result.group) {
-    showJoinGroupModal(result.group);
+  if (group) {
+    showJoinGroupModal({
+      ...group,
+      groupId: group.id,
+      isPublic: group.is_public,
+      buyinType: group.buyin_type,
+      buyinPrice: group.buyin_price,
+      pointsR1: group.points_r1,
+      pointsR2: group.points_r2,
+      pointsR3: group.points_r3,
+      pointsSB: group.points_sb
+    });
   } else {
     showToast('Group not found', 'error');
   }
-
-  // Clean URL
-  window.history.replaceState({}, document.title, window.location.pathname);
 }
 
 function showJoinGroupModal(group) {
   const details = document.getElementById('joinGroupDetails');
   details.innerHTML = `
     <h3>${group.name}</h3>
-    <p><strong>Members:</strong> ${group.memberCount}</p>
     <p><strong>Visibility:</strong> ${group.isPublic ? 'Public' : 'Private'}</p>
     ${group.buyinType !== 'none' ? `
       <p><strong>Buy-in:</strong> $${group.buyinPrice} (${group.buyinType})</p>
@@ -791,36 +872,87 @@ function showJoinGroupModal(group) {
 }
 
 async function openGroupDetail(groupId) {
-  const groupResult = await apiCall('getGroup', { groupId });
-  const membersResult = await apiCall('getGroupMembers', { groupId });
-  const leaderboardResult = await apiCall('getGroupLeaderboard', { groupId });
+  const { data: group } = await supabase
+    .from('groups')
+    .select('*')
+    .eq('id', groupId)
+    .single();
 
-  if (groupResult.error) {
-    showToast(groupResult.error, 'error');
+  const { data: members } = await supabase
+    .from('group_members')
+    .select(`
+      user_id,
+      profiles (
+        display_name,
+        email
+      )
+    `)
+    .eq('group_id', groupId);
+
+  if (!group) {
+    showToast('Group not found', 'error');
     return;
   }
 
-  const group = groupResult.group;
-  const members = membersResult.members || [];
-  const leaderboard = leaderboardResult.leaderboard || [];
+  // Calculate scores for leaderboard
+  const leaderboard = [];
+  for (const member of members || []) {
+    const { data: picks } = await supabase
+      .from('picks')
+      .select('*')
+      .eq('user_id', member.user_id);
+
+    // Get actual results for scoring
+    const { data: results } = await supabase
+      .from('actual_results')
+      .select('*');
+
+    let score = 0;
+    if (results && picks) {
+      picks.forEach(pick => {
+        const match = results.find(r =>
+          r.conference === pick.conference &&
+          r.round === pick.round &&
+          r.team_id === pick.team_id
+        );
+        if (match) {
+          switch (pick.round) {
+            case 1: score += group.points_r1; break;
+            case 2: score += group.points_r2; break;
+            case 3: score += group.points_r3; break;
+            case 4: score += group.points_sb; break;
+          }
+        }
+      });
+    }
+
+    leaderboard.push({
+      displayName: member.profiles?.display_name || member.profiles?.email?.split('@')[0] || 'Unknown',
+      hasBracket: (picks?.length || 0) > 0,
+      score
+    });
+  }
+
+  leaderboard.sort((a, b) => b.score - a.score);
+  leaderboard.forEach((entry, i) => entry.rank = i + 1);
 
   const content = document.getElementById('groupDetailContent');
   content.innerHTML = `
     <h2>${group.name}</h2>
     <div class="group-meta" style="margin-bottom: 1rem;">
-      <span>${members.length} members</span>
-      <span>${group.isPublic ? 'Public' : 'Private'}</span>
-      ${group.buyinType !== 'none' ? `<span>$${group.buyinPrice} buy-in</span>` : ''}
+      <span>${members?.length || 0} members</span>
+      <span>${group.is_public ? 'Public' : 'Private'}</span>
+      ${group.buyin_type !== 'none' ? `<span>$${group.buyin_price} buy-in</span>` : ''}
     </div>
 
     <div style="margin-bottom: 1rem;">
-      <strong>Scoring:</strong> Wild Card: ${group.pointsR1} | Divisional: ${group.pointsR2} | Conference: ${group.pointsR3} | Super Bowl: ${group.pointsSB}
+      <strong>Scoring:</strong> Wild Card: ${group.points_r1} | Divisional: ${group.points_r2} | Conference: ${group.points_r3} | Super Bowl: ${group.points_sb}
     </div>
 
     ${!state.playoffsLocked ? `
       <div style="margin-bottom: 1rem;">
         <strong>Invite Link:</strong>
-        <input type="text" value="${CONFIG.API_URL.replace('/exec', '')}?join=${group.groupId}" readonly style="width: 100%;" onclick="this.select()">
+        <input type="text" value="${CONFIG.SITE_URL}?join=${group.id}" readonly style="width: 100%;" onclick="this.select()">
       </div>
     ` : ''}
 
@@ -863,14 +995,14 @@ function renderGroups() {
   }
 
   list.innerHTML = groups.map(group => `
-    <div class="group-card" onclick="openGroupDetail('${group.groupId}')">
+    <div class="group-card" onclick="openGroupDetail('${group.groupId || group.id}')">
       <div class="group-card-header">
         <span class="group-name">${group.name}</span>
-        <span class="group-badge">${group.isPublic ? 'Public' : 'Private'}</span>
+        <span class="group-badge">${group.isPublic || group.is_public ? 'Public' : 'Private'}</span>
       </div>
       <div class="group-meta">
-        <span>${group.memberCount} members</span>
-        ${group.buyinType !== 'none' ? `<span>$${group.buyinPrice} buy-in</span>` : ''}
+        <span>${group.memberCount || '?'} members</span>
+        ${(group.buyinType || group.buyin_type) !== 'none' ? `<span>$${group.buyinPrice || group.buyin_price} buy-in</span>` : ''}
       </div>
     </div>
   `).join('');
@@ -881,29 +1013,22 @@ function renderGroups() {
 // ============================================
 
 async function loadStats() {
-  const result = await apiCall('getAggregateStats');
-
-  if (result.error) {
-    showToast(result.error, 'error');
-    return;
-  }
+  const { data, error } = await supabase.rpc('get_aggregate_stats');
 
   const content = document.getElementById('statsContent');
 
-  if (result.totalUsers === 0) {
+  if (error || !data || data.length === 0) {
     content.innerHTML = '<div class="empty-state">No brackets submitted yet.</div>';
     return;
   }
 
-  // Group stats by round
   const byRound = {};
-  result.stats.forEach(stat => {
+  data.forEach(stat => {
     const key = `${stat.conference}-R${stat.round}`;
     if (!byRound[key]) byRound[key] = [];
     byRound[key].push(stat);
   });
 
-  // Sort each round by percentage
   Object.values(byRound).forEach(arr => arr.sort((a, b) => b.percentage - a.percentage));
 
   const roundNames = {
@@ -913,7 +1038,12 @@ async function loadStats() {
     4: 'Super Bowl'
   };
 
-  let html = `<p style="margin-bottom: 1rem;">Based on ${result.totalUsers} brackets</p><div class="stats-grid">`;
+  // Get total users
+  const { count } = await supabase
+    .from('picks')
+    .select('user_id', { count: 'exact', head: true });
+
+  let html = `<p style="margin-bottom: 1rem;">Based on brackets from multiple users</p><div class="stats-grid">`;
 
   ['AFC', 'NFC', 'SB'].forEach(conf => {
     [1, 2, 3, 4].forEach(round => {
@@ -929,8 +1059,8 @@ async function loadStats() {
         <div class="stats-round">
           <div class="stats-round-title">${conf === 'SB' ? '' : conf + ' '}${roundNames[round]}</div>
           ${stats.map(stat => {
-            const team = findTeamById(conf === 'SB' ? 'AFC' : conf, stat.teamId) ||
-                        findTeamById('NFC', stat.teamId);
+            const team = findTeamById(conf === 'SB' ? 'AFC' : conf, stat.team_id) ||
+                        findTeamById('NFC', stat.team_id);
             return `
               <div class="stats-team">
                 <img src="${team?.logo || ''}" class="stats-team-logo" onerror="this.style.display='none'">
@@ -956,10 +1086,8 @@ async function loadStats() {
 // ============================================
 
 function initializeUI() {
-  // Auth UI
   updateAuthUI();
 
-  // Modal close buttons
   document.querySelectorAll('[data-close]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const modal = e.target.closest('.modal');
@@ -967,14 +1095,12 @@ function initializeUI() {
     });
   });
 
-  // Click outside modal to close
   document.querySelectorAll('.modal').forEach(modal => {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) closeModal(modal.id);
     });
   });
 
-  // Login form
   document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
@@ -990,7 +1116,6 @@ function initializeUI() {
     }
   });
 
-  // Create group form
   document.getElementById('createGroupForm').addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -1000,10 +1125,10 @@ function initializeUI() {
       buyinType: document.querySelector('input[name="buyinType"]:checked').value,
       buyinPrice: document.getElementById('buyinPrice').value,
       paymentLink: document.getElementById('paymentLink').value,
-      pointsR1: document.getElementById('pointsR1').value,
-      pointsR2: document.getElementById('pointsR2').value,
-      pointsR3: document.getElementById('pointsR3').value,
-      pointsSB: document.getElementById('pointsSB').value
+      pointsR1: parseInt(document.getElementById('pointsR1').value) || 2,
+      pointsR2: parseInt(document.getElementById('pointsR2').value) || 4,
+      pointsR3: parseInt(document.getElementById('pointsR3').value) || 6,
+      pointsSB: parseInt(document.getElementById('pointsSB').value) || 8
     };
 
     const result = await createGroup(groupData);
@@ -1016,7 +1141,6 @@ function initializeUI() {
     }
   });
 
-  // Buy-in toggle
   document.querySelectorAll('input[name="buyinType"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
       document.getElementById('buyinDetails').style.display =
@@ -1024,18 +1148,13 @@ function initializeUI() {
     });
   });
 
-  // Profile form
   document.getElementById('profileForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const displayName = document.getElementById('displayName').value;
 
-    const result = await apiCall('updateDisplayName', {
-      sessionToken: state.sessionToken,
-      displayName: displayName
-    });
+    const result = await updateDisplayName(displayName);
 
     if (result.success) {
-      state.user = result.user;
       updateAuthUI();
       showFormMessage('profileMessage', 'Profile updated!', 'success');
     } else {
@@ -1043,13 +1162,11 @@ function initializeUI() {
     }
   });
 
-  // Logout button
   document.getElementById('logoutBtn').addEventListener('click', async () => {
     await logout();
     closeModal('profileModal');
   });
 
-  // Group tabs
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1059,7 +1176,6 @@ function initializeUI() {
     });
   });
 
-  // Create group button
   document.getElementById('createGroupBtn').addEventListener('click', () => {
     if (!state.user) {
       openModal('loginModal');
@@ -1068,13 +1184,11 @@ function initializeUI() {
     openModal('createGroupModal');
   });
 
-  // Stats button
   document.getElementById('statsBtn').addEventListener('click', async () => {
     openModal('statsModal');
     await loadStats();
   });
 
-  // Bracket actions
   document.getElementById('submitPicksBtn').addEventListener('click', savePicks);
   document.getElementById('resetPicksBtn').addEventListener('click', resetPicks);
 }
@@ -1083,11 +1197,12 @@ function updateAuthUI() {
   const authSection = document.getElementById('authSection');
 
   if (state.user) {
-    const initial = (state.user.displayName || state.user.email)[0].toUpperCase();
+    const displayName = state.profile?.display_name || state.user.email?.split('@')[0] || 'User';
+    const initial = displayName[0].toUpperCase();
     authSection.innerHTML = `
       <div class="user-info" onclick="openModal('profileModal'); populateProfile();">
         <div class="user-avatar">${initial}</div>
-        <span class="user-name">${state.user.displayName}</span>
+        <span class="user-name">${displayName}</span>
       </div>
     `;
   } else {
@@ -1096,7 +1211,6 @@ function updateAuthUI() {
     `;
   }
 
-  // Update groups section visibility
   const groupsSection = document.getElementById('groupsSection');
   if (state.user) {
     groupsSection.style.display = 'block';
@@ -1106,9 +1220,9 @@ function updateAuthUI() {
 }
 
 function populateProfile() {
-  if (state.user) {
-    document.getElementById('displayName').value = state.user.displayName || '';
-    document.getElementById('profileEmail').textContent = state.user.email;
+  if (state.profile) {
+    document.getElementById('displayName').value = state.profile.display_name || '';
+    document.getElementById('profileEmail').textContent = state.user?.email || '';
   }
 }
 
@@ -1118,7 +1232,6 @@ function openModal(modalId) {
 
 function closeModal(modalId) {
   document.getElementById(modalId).classList.remove('open');
-  // Clear form messages
   document.querySelectorAll('.form-message').forEach(el => {
     el.classList.remove('visible');
   });
@@ -1143,11 +1256,10 @@ function showToast(message, type = 'info') {
 }
 
 function showLoading(show) {
-  // Could add a loading overlay here
   document.body.style.cursor = show ? 'wait' : 'default';
 }
 
-// Make functions globally available for onclick handlers
+// Make functions globally available
 window.openModal = openModal;
 window.closeModal = closeModal;
 window.openGroupDetail = openGroupDetail;
