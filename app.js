@@ -8,7 +8,7 @@
 
 const CONFIG = {
   // UPDATE THESE with your Supabase project details
-  SUPABASE_URL: 'https://mvdgiqspcywbmrvlphtp.supabaseClient.co',
+  SUPABASE_URL: 'https://mvdgiqspcywbmrvlphtp.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_cUgE-KLyMycCPxAOXa8FeA_CkH6Unai',
 
   // ESPN API endpoints
