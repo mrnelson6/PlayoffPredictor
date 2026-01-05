@@ -160,7 +160,7 @@ async function logout() {
 async function loadProfile() {
   if (!state.user) return;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('profiles')
     .select('*')
     .eq('id', state.user.id)
@@ -174,7 +174,7 @@ async function loadProfile() {
 async function updateDisplayName(displayName) {
   if (!state.user) return { error: 'Not logged in' };
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('profiles')
     .update({ display_name: displayName, updated_at: new Date().toISOString() })
     .eq('id', state.user.id)
@@ -285,7 +285,7 @@ function loadFallbackData() {
 }
 
 async function checkPlayoffsLocked() {
-  const { data } = await supabase
+  const { data } = await supabaseClient
     .from('config')
     .select('value')
     .eq('key', 'playoffs_locked')
@@ -302,7 +302,7 @@ async function checkPlayoffsLocked() {
 async function loadUserPicks() {
   if (!state.user) return;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseClient
     .from('picks')
     .select('*')
     .eq('user_id', state.user.id);
@@ -334,7 +334,7 @@ async function savePicks() {
   showLoading(true);
 
   // Delete existing picks
-  await supabase
+  await supabaseClient
     .from('picks')
     .delete()
     .eq('user_id', state.user.id);
@@ -348,7 +348,7 @@ async function savePicks() {
     team_id: pick.teamId
   }));
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from('picks')
     .insert(picksToInsert);
 
@@ -676,7 +676,7 @@ function updateLockStatus() {
 async function loadUserGroups() {
   if (!state.user) return;
 
-  const { data } = await supabase
+  const { data } = await supabaseClient
     .from('group_members')
     .select(`
       group_id,
@@ -717,7 +717,7 @@ async function loadUserGroups() {
 }
 
 async function loadPublicGroups() {
-  const { data } = await supabase
+  const { data } = await supabaseClient
     .from('groups')
     .select('*')
     .eq('is_public', true);
@@ -725,7 +725,7 @@ async function loadPublicGroups() {
   if (data) {
     // Get member counts
     const groupIds = data.map(g => g.id);
-    const { data: memberCounts } = await supabase
+    const { data: memberCounts } = await supabaseClient
       .from('group_members')
       .select('group_id')
       .in('group_id', groupIds);
@@ -760,7 +760,7 @@ async function createGroup(groupData) {
     return { error: 'Please sign in first' };
   }
 
-  const { data: group, error } = await supabase
+  const { data: group, error } = await supabaseClient
     .from('groups')
     .insert({
       name: groupData.name,
@@ -782,7 +782,7 @@ async function createGroup(groupData) {
   }
 
   // Auto-join creator
-  await supabase
+  await supabaseClient
     .from('group_members')
     .insert({
       group_id: group.id,
@@ -804,7 +804,7 @@ async function joinGroup(groupId) {
     return { error: 'Please sign in first' };
   }
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from('group_members')
     .insert({
       group_id: groupId,
@@ -824,7 +824,7 @@ async function joinGroup(groupId) {
 }
 
 async function handleJoinLink(groupId) {
-  const { data: group } = await supabase
+  const { data: group } = await supabaseClient
     .from('groups')
     .select('*')
     .eq('id', groupId)
@@ -872,13 +872,13 @@ function showJoinGroupModal(group) {
 }
 
 async function openGroupDetail(groupId) {
-  const { data: group } = await supabase
+  const { data: group } = await supabaseClient
     .from('groups')
     .select('*')
     .eq('id', groupId)
     .single();
 
-  const { data: members } = await supabase
+  const { data: members } = await supabaseClient
     .from('group_members')
     .select(`
       user_id,
@@ -897,13 +897,13 @@ async function openGroupDetail(groupId) {
   // Calculate scores for leaderboard
   const leaderboard = [];
   for (const member of members || []) {
-    const { data: picks } = await supabase
+    const { data: picks } = await supabaseClient
       .from('picks')
       .select('*')
       .eq('user_id', member.user_id);
 
     // Get actual results for scoring
-    const { data: results } = await supabase
+    const { data: results } = await supabaseClient
       .from('actual_results')
       .select('*');
 
@@ -1039,7 +1039,7 @@ async function loadStats() {
   };
 
   // Get total users
-  const { count } = await supabase
+  const { count } = await supabaseClient
     .from('picks')
     .select('user_id', { count: 'exact', head: true });
 
