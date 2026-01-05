@@ -1,6 +1,6 @@
 -- PlayoffPredictor Supabase Schema
 -- Run this in the Supabase SQL Editor to set up your database
--- Last updated: Includes all fixes and buy-in tracking
+-- Last updated: Includes buy-in tracking, bracket viewing functions, and scoring
 
 -- ============================================
 -- Config table (must be created first - referenced by picks policies)
@@ -224,33 +224,38 @@ JOIN profiles pr ON gm.user_id = pr.id;
 -- Functions
 -- ============================================
 
--- Function to get aggregate stats
+-- Function to get aggregate stats (SECURITY DEFINER to bypass RLS and see all picks)
 CREATE OR REPLACE FUNCTION get_aggregate_stats()
 RETURNS TABLE (
   conference TEXT,
   round INTEGER,
   team_id TEXT,
-  count BIGINT,
-  percentage NUMERIC
-) AS $$
+  pick_count BIGINT,
+  percentage NUMERIC,
+  total_users BIGINT
+)
+SECURITY DEFINER
+SET search_path = public
+AS $$
 DECLARE
-  total_users BIGINT;
+  user_count BIGINT;
 BEGIN
-  SELECT COUNT(DISTINCT user_id) INTO total_users FROM picks;
+  SELECT COUNT(DISTINCT user_id) INTO user_count FROM public.picks;
 
   RETURN QUERY
   SELECT
     p.conference,
     p.round,
     p.team_id,
-    COUNT(*) as count,
-    CASE WHEN total_users > 0
-      THEN ROUND((COUNT(*)::NUMERIC / total_users) * 100)
+    COUNT(*) as pick_count,
+    CASE WHEN user_count > 0
+      THEN ROUND((COUNT(*)::NUMERIC / user_count) * 100)
       ELSE 0
-    END as percentage
-  FROM picks p
+    END as percentage,
+    user_count as total_users
+  FROM public.picks p
   GROUP BY p.conference, p.round, p.team_id
-  ORDER BY p.conference, p.round, count DESC;
+  ORDER BY p.conference, p.round, pick_count DESC;
 END;
 $$ LANGUAGE plpgsql;
 

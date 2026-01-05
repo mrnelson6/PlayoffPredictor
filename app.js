@@ -1579,6 +1579,9 @@ async function loadStats() {
     return;
   }
 
+  // Get total users from the first row (all rows have the same total_users value)
+  const totalUsers = data[0]?.total_users || 0;
+
   const byRound = {};
   data.forEach(stat => {
     const key = `${stat.conference}-R${stat.round}`;
@@ -1595,12 +1598,7 @@ async function loadStats() {
     4: 'Super Bowl'
   };
 
-  // Get total users
-  const { count } = await supabaseClient
-    .from('picks')
-    .select('user_id', { count: 'exact', head: true });
-
-  let html = `<p style="margin-bottom: 1rem;">Based on brackets from multiple users</p><div class="stats-grid">`;
+  let html = `<p style="margin-bottom: 1rem;">Based on <strong>${totalUsers}</strong> bracket${totalUsers !== 1 ? 's' : ''}</p><div class="stats-grid">`;
 
   ['AFC', 'NFC', 'SB'].forEach(conf => {
     [1, 2, 3, 4].forEach(round => {
