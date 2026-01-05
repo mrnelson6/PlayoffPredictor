@@ -1570,16 +1570,22 @@ function renderGroups() {
 // ============================================
 
 async function loadStats() {
-  const { data, error } = await supabaseClient.rpc('get_aggregate_stats');
-
   const content = document.getElementById('statsContent');
+
+  // Don't show aggregate stats until brackets are locked
+  if (!state.playoffsLocked) {
+    content.innerHTML = '<div class="empty-state">Aggregate predictions will be available once brackets lock.</div>';
+    return;
+  }
+
+  const { data, error } = await supabaseClient.rpc('get_aggregate_stats');
 
   if (error || !data || data.length === 0) {
     content.innerHTML = '<div class="empty-state">No brackets submitted yet.</div>';
     return;
   }
 
-  // Get total users from the first row (all rows have the same total_users value)
+  // Get total users from the SQL function (uses COUNT(DISTINCT user_id))
   const totalUsers = data[0]?.total_users || 0;
 
   const byRound = {};
@@ -1598,7 +1604,7 @@ async function loadStats() {
     4: 'Super Bowl'
   };
 
-  let html = `<p style="margin-bottom: 1rem;">Based on <strong>${totalUsers}</strong> bracket${totalUsers !== 1 ? 's' : ''}</p><div class="stats-grid">`;
+  let html = `<p style="margin-bottom: 1rem;">Based on <strong>${totalUsers || 0}</strong> bracket${totalUsers !== 1 ? 's' : ''}</p><div class="stats-grid">`;
 
   ['AFC', 'NFC', 'SB'].forEach(conf => {
     [1, 2, 3, 4].forEach(round => {
