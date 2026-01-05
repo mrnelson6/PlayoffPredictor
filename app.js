@@ -7,6 +7,7 @@
 // ============================================
 
 const CONFIG = {
+  
   // UPDATE THIS after deploying your Apps Script
   API_URL: 'https://script.google.com/macros/s/AKfycbzHZHVShJjEBv3kvR-AkZa77AbUSl7iH6txKob_kae7Pn-qba-LAJOJtBYLeaXlicAY/exec',
 
