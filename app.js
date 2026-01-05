@@ -23,7 +23,7 @@ const CONFIG = {
 };
 
 // Initialize Supabase client
-const supabaseClient = window.supabaseClient.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
 // ============================================
 // State Management
