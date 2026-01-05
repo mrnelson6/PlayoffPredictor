@@ -8,7 +8,7 @@
 
 const CONFIG = {
   // UPDATE THIS after deploying your Apps Script
-  API_URL: 'https://script.google.com/macros/s/AKfycbybbrDY0JJBi0Ujw8_BYX4NBKtxiynJvpgRfzevs4WqlRc5aTv4QT1ba7jvn4sRxzIZ/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzHZHVShJjEBv3kvR-AkZa77AbUSl7iH6txKob_kae7Pn-qba-LAJOJtBYLeaXlicAY/exec',
 
   // ESPN API endpoints
   ESPN_SCOREBOARD: 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
