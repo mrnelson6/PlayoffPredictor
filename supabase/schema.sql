@@ -44,15 +44,25 @@ CREATE POLICY "Users can update own profile" ON profiles
 
 -- Function to handle new user signup
 -- NOTE: Must use public.profiles since trigger runs in auth schema context
+-- Also auto-enrolls user into the default public group
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  default_group_id UUID := '93971425-cb64-4538-b4ca-ead2c50017ac';
 BEGIN
+  -- Create profile
   INSERT INTO public.profiles (id, email, display_name)
   VALUES (
     NEW.id,
     NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'display_name', SPLIT_PART(NEW.email, '@', 1))
   );
+
+  -- Auto-enroll in default public group
+  INSERT INTO public.group_members (group_id, user_id)
+  VALUES (default_group_id, NEW.id)
+  ON CONFLICT (group_id, user_id) DO NOTHING;
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

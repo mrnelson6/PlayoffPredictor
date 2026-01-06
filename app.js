@@ -71,6 +71,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateAuthUI();
       renderBracket();
       showToast('Welcome back, ' + (state.profile?.display_name || state.user.email) + '!', 'success');
+
+      // Check for pending group join after sign-in
+      const pendingJoin = localStorage.getItem('pendingGroupJoin');
+      if (pendingJoin) {
+        await handleJoinLink(pendingJoin);
+        localStorage.removeItem('pendingGroupJoin');
+      }
     } else if (event === 'SIGNED_OUT') {
       state.user = null;
       state.profile = null;
@@ -82,9 +89,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Check for group join link
+  // Check for group join link - save to localStorage so it survives auth flow
   const urlParams = new URLSearchParams(window.location.search);
   const joinGroupId = urlParams.get('join');
+  if (joinGroupId) {
+    localStorage.setItem('pendingGroupJoin', joinGroupId);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
 
   // Load NFL data
   await loadNFLData();
@@ -95,10 +106,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize UI
   initializeUI();
 
-  // Handle group join link
-  if (joinGroupId) {
-    await handleJoinLink(joinGroupId);
-    window.history.replaceState({}, document.title, window.location.pathname);
+  // Handle pending group join (only if already logged in - otherwise wait for SIGNED_IN event)
+  if (state.user) {
+    const pendingJoin = localStorage.getItem('pendingGroupJoin');
+    if (pendingJoin) {
+      await handleJoinLink(pendingJoin);
+      localStorage.removeItem('pendingGroupJoin');
+    }
   }
 
   // Render bracket
