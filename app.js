@@ -42,6 +42,7 @@ const state = {
   groups: [],
   publicGroups: [],
   playoffsLocked: false,
+  isAdmin: false,
   currentGroupTab: 'my-groups',
   actualResults: {} // Maps "conference-round-game" to winning team_id
 };
@@ -69,6 +70,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       await loadUserPicks();
       await loadUserGroups();
       updateAuthUI();
+      await checkIsAdmin();
       renderBracket();
       showToast('Welcome back, ' + (state.profile?.display_name || state.user.email) + '!', 'success');
 
@@ -84,7 +86,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       state.picks = [];
       state.savedPicks = [];
       state.groups = [];
+      state.isAdmin = false;
       updateAuthUI();
+      document.getElementById('adminBtn').style.display = 'none';
       renderBracket();
     }
   });
@@ -131,6 +135,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadPublicGroups();
 
   updateAuthUI();
+
+  // Check if user is admin
+  await checkIsAdmin();
 });
 
 // Handle magic link callback
@@ -1764,6 +1771,8 @@ function initializeUI() {
     await loadStats();
   });
 
+  document.getElementById('adminBtn').addEventListener('click', openAdminPanel);
+
   document.getElementById('submitPicksBtn').addEventListener('click', savePicks);
   document.getElementById('resetPicksBtn').addEventListener('click', resetPicks);
 }
@@ -1993,3 +2002,224 @@ window.debugClearAllWinners = async function() {
   // Refresh the UI
   await loadActualResults();
 };
+
+// ============================================
+// Admin Panel
+// ============================================
+
+async function checkIsAdmin() {
+  if (!state.user) {
+    state.isAdmin = false;
+    return;
+  }
+
+  const { data } = await supabaseClient
+    .from('config')
+    .select('value')
+    .eq('key', 'admin_emails')
+    .single();
+
+  const adminEmails = data?.value ? data.value.split(',').map(e => e.trim().toLowerCase()) : [];
+  state.isAdmin = adminEmails.includes(state.user.email?.toLowerCase());
+
+  // Show/hide admin button
+  const adminBtn = document.getElementById('adminBtn');
+  if (adminBtn) {
+    adminBtn.style.display = state.isAdmin ? 'block' : 'none';
+  }
+}
+
+function openAdminPanel() {
+  renderAdminPanel();
+  openModal('adminModal');
+}
+
+function renderAdminPanel() {
+  const content = document.getElementById('adminContent');
+
+  const rounds = [
+    { name: 'Wild Card', round: 1, games: 3 },
+    { name: 'Divisional', round: 2, games: 2 },
+    { name: 'Conference', round: 3, games: 1 },
+    { name: 'Super Bowl', round: 4, games: 1, isSuperBowl: true }
+  ];
+
+  let html = '<div class="admin-results">';
+
+  // Lock status section
+  html += `
+    <div class="admin-section">
+      <h3>Bracket Lock Status</h3>
+      <p>Current status: <strong>${state.playoffsLocked ? 'LOCKED' : 'UNLOCKED'}</strong></p>
+      <div class="admin-actions">
+        <button class="btn ${state.playoffsLocked ? 'btn-secondary' : 'btn-primary'}" onclick="adminSetLock(true)" ${state.playoffsLocked ? 'disabled' : ''}>Lock Brackets</button>
+        <button class="btn ${!state.playoffsLocked ? 'btn-secondary' : 'btn-primary'}" onclick="adminSetLock(false)" ${!state.playoffsLocked ? 'disabled' : ''}>Unlock Brackets</button>
+      </div>
+    </div>
+    <hr>
+  `;
+
+  // Game results section
+  html += '<h3>Game Results</h3>';
+
+  for (const roundInfo of rounds) {
+    html += `<div class="admin-round"><h4>${roundInfo.name}</h4>`;
+
+    if (roundInfo.isSuperBowl) {
+      // Super Bowl - teams from conference championship winners
+      const afcChamp = state.actualResults['AFC-3-1'];
+      const nfcChamp = state.actualResults['NFC-3-1'];
+      const sbWinner = state.actualResults['SB-4-1'];
+
+      html += `<div class="admin-game">`;
+      html += `<span class="game-label">Super Bowl:</span>`;
+      html += `<select onchange="adminSetResult('SB', 4, 1, this.value)">`;
+      html += `<option value="">-- Select Winner --</option>`;
+
+      if (afcChamp) {
+        const afcTeam = state.teams[afcChamp];
+        html += `<option value="${afcChamp}" ${sbWinner === afcChamp ? 'selected' : ''}>${afcTeam?.abbreviation?.toUpperCase() || afcChamp} (AFC)</option>`;
+      }
+      if (nfcChamp) {
+        const nfcTeam = state.teams[nfcChamp];
+        html += `<option value="${nfcChamp}" ${sbWinner === nfcChamp ? 'selected' : ''}>${nfcTeam?.abbreviation?.toUpperCase() || nfcChamp} (NFC)</option>`;
+      }
+      if (!afcChamp && !nfcChamp) {
+        html += `<option disabled>Conference winners not set yet</option>`;
+      }
+
+      html += `</select>`;
+      if (sbWinner) {
+        html += `<button class="btn btn-small btn-secondary" onclick="adminClearResult('SB', 4, 1)">Clear</button>`;
+      }
+      html += `</div>`;
+    } else {
+      // Regular rounds - AFC and NFC
+      for (const conf of ['AFC', 'NFC']) {
+        html += `<div class="admin-conference"><strong>${conf}</strong>`;
+
+        for (let game = 1; game <= roundInfo.games; game++) {
+          const key = `${conf}-${roundInfo.round}-${game}`;
+          const currentWinner = state.actualResults[key];
+          const teams = getTeamsForGame(conf, roundInfo.round, game);
+
+          html += `<div class="admin-game">`;
+          html += `<span class="game-label">Game ${game}:</span>`;
+          html += `<select onchange="adminSetResult('${conf}', ${roundInfo.round}, ${game}, this.value)">`;
+          html += `<option value="">-- Select Winner --</option>`;
+
+          for (const team of teams) {
+            if (team) {
+              const teamData = state.teams[team.teamId] || team;
+              const abbrev = teamData.abbreviation?.toUpperCase() || team.teamId;
+              html += `<option value="${team.teamId}" ${currentWinner === team.teamId ? 'selected' : ''}>${abbrev}</option>`;
+            }
+          }
+
+          html += `</select>`;
+          if (currentWinner) {
+            html += `<button class="btn btn-small btn-secondary" onclick="adminClearResult('${conf}', ${roundInfo.round}, ${game})">Clear</button>`;
+          }
+          html += `</div>`;
+        }
+        html += `</div>`;
+      }
+    }
+    html += `</div>`;
+  }
+
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+function getTeamsForGame(conference, round, game) {
+  if (round === 1) {
+    // Wild Card - seeded matchups
+    const matchups = [
+      { seeds: [2, 7] },
+      { seeds: [3, 6] },
+      { seeds: [4, 5] }
+    ];
+    const matchup = matchups[game - 1];
+    return matchup.seeds.map(seed => state.playoffTeams[conference]?.[seed]);
+  } else if (round === 2) {
+    // Divisional - 1 seed + WC winners
+    const wcWinners = [1, 2, 3].map(g => state.actualResults[`${conference}-1-${g}`]).filter(Boolean);
+    if (game === 1) {
+      // 1 seed vs lowest remaining seed
+      const oneSeed = state.playoffTeams[conference]?.[1];
+      const opponent = wcWinners[0] ? { teamId: wcWinners[0] } : null;
+      return [oneSeed, opponent];
+    } else {
+      // Other two WC winners
+      return wcWinners.slice(1).map(id => ({ teamId: id }));
+    }
+  } else if (round === 3) {
+    // Conference Championship - Divisional winners
+    const divWinners = [1, 2].map(g => state.actualResults[`${conference}-2-${g}`]).filter(Boolean);
+    return divWinners.map(id => ({ teamId: id }));
+  }
+  return [];
+}
+
+async function adminSetResult(conference, round, game, teamId) {
+  if (!teamId) return;
+
+  const { error } = await supabaseClient
+    .from('actual_results')
+    .upsert({
+      conference,
+      round,
+      game,
+      team_id: teamId
+    }, { onConflict: 'conference,round,game' });
+
+  if (error) {
+    showToast('Failed to set result: ' + error.message, 'error');
+    return;
+  }
+
+  showToast('Result saved!', 'success');
+  await loadActualResults();
+  renderAdminPanel();
+}
+
+async function adminClearResult(conference, round, game) {
+  const { error } = await supabaseClient
+    .from('actual_results')
+    .delete()
+    .eq('conference', conference)
+    .eq('round', round)
+    .eq('game', game);
+
+  if (error) {
+    showToast('Failed to clear result: ' + error.message, 'error');
+    return;
+  }
+
+  showToast('Result cleared', 'success');
+  await loadActualResults();
+  renderAdminPanel();
+}
+
+async function adminSetLock(locked) {
+  const { error } = await supabaseClient
+    .from('config')
+    .update({ value: locked ? 'true' : 'false' })
+    .eq('key', 'playoffs_locked');
+
+  if (error) {
+    showToast('Failed to update lock status: ' + error.message, 'error');
+    return;
+  }
+
+  state.playoffsLocked = locked;
+  updateLockStatus();
+  renderAdminPanel();
+  showToast(`Brackets ${locked ? 'locked' : 'unlocked'}!`, 'success');
+}
+
+// Make admin functions available globally
+window.adminSetResult = adminSetResult;
+window.adminClearResult = adminClearResult;
+window.adminSetLock = adminSetLock;

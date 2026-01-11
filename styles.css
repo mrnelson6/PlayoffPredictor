@@ -1198,3 +1198,88 @@ hr {
     height: 36px;
   }
 }
+
+/* ============================================
+   Admin Panel
+   ============================================ */
+
+.admin-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.admin-section {
+  margin-bottom: var(--spacing-md);
+}
+
+.admin-section h3 {
+  margin-bottom: var(--spacing-sm);
+}
+
+.admin-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+.admin-round {
+  background: var(--bg-tertiary);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+}
+
+.admin-round h4 {
+  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--spacing-xs);
+}
+
+.admin-conference {
+  margin: var(--spacing-sm) 0;
+  padding: var(--spacing-sm);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.admin-conference strong {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+
+.admin-game {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin: var(--spacing-xs) 0;
+  flex-wrap: wrap;
+}
+
+.admin-game .game-label {
+  min-width: 70px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.admin-game select {
+  flex: 1;
+  min-width: 120px;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.admin-game select:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.btn-small {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.8rem;
+}

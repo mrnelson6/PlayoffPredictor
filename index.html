@@ -19,6 +19,7 @@
         <span class="logo-text">PlayoffPredictor</span>
       </div>
       <nav class="nav">
+        <button class="nav-btn" id="adminBtn" style="display: none;">Admin</button>
         <button class="nav-btn" id="statsBtn">Stats</button>
         <div class="auth-section" id="authSection">
           <!-- Populated by JS based on auth state -->
@@ -320,6 +321,19 @@
       <div class="form-message" id="profileMessage"></div>
       <hr>
       <button class="btn btn-secondary btn-full" id="logoutBtn">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- Admin Modal -->
+  <div class="modal" id="adminModal">
+    <div class="modal-content modal-large">
+      <button class="modal-close" data-close>&times;</button>
+      <h2>Admin Panel</h2>
+      <p>Enter game results as they happen</p>
+      <div id="adminContent">
+        <!-- Populated by JS -->
+      </div>
+      <div class="form-message" id="adminMessage"></div>
     </div>
   </div>
 
